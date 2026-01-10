@@ -29,8 +29,6 @@ python main.py
 bash deploy/upload.sh
 ```
 
-Подробнее: `deploy/README.md`
-
 ## Google Sheets
 
 Экспорт и импорт данных через Google Таблицы.
