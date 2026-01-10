@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  smartfinances:
+    build: .
+    container_name: smartfinances_bot
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/google_credentials.json
+      - DATABASE_URL=sqlite:////app/data/smartfinances.db
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./data:/app/data
+      - ./google_credentials.json:/app/google_credentials.json:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+

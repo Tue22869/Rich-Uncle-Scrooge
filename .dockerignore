@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+env/
+ENV/
+*.egg-info/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+
+# Google credentials (mount as volume)
+google_credentials.json
+*-*.json
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Deploy files
+deploy/
+DEPLOY*.txt
+
+# Tests
+tests/
+pytest.ini
+.pytest_cache/
+
+# Docs
+*.md
+!README.md
+

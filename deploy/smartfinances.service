@@ -1,0 +1,20 @@
+[Unit]
+Description=SmartFinances Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/smartfinances
+Environment="PATH=/var/www/smartfinances/venv/bin"
+ExecStart=/var/www/smartfinances/venv/bin/python3 /var/www/smartfinances/main.py
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=append:/var/www/smartfinances/bot.log
+StandardError=append:/var/www/smartfinances/bot.log
+
+[Install]
+WantedBy=multi-user.target
+
