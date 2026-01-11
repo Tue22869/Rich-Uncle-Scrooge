@@ -2,15 +2,37 @@
 🐳 ДЕПЛОЙ ЧЕРЕЗ DOCKER (РЕКОМЕНДУЕТСЯ)
 ════════════════════════════════════════════════════════════════
 
-ОДИН РАЗ: Загрузи google_credentials.json на сервер:
+ПЕРВЫЙ РАЗ (в веб-консоли Timeweb):
 
-scp ~/Downloads/rich-uncle-scrooge-9a8c29733c56.json root@31.130.131.71:/var/www/smartfinances/google_credentials.json
+systemctl stop smartfinances 2>/dev/null; systemctl disable smartfinances 2>/dev/null; pkill -9 -f "python.*main.py" 2>/dev/null; sleep 2; cat > /var/www/smartfinances/google_credentials.json << 'CREDEOF'
+{
+  "type": "service_account",
+  "project_id": "rich-uncle-scrooge",
+  "private_key_id": "9a8c29733c56c9ef8eb7bc53b79459ca176c5a32",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC3PuCjiGBHIsL/\nwpUlpxEE3SlxiB1BSt+MMGTY24Sm5M2svYAPhym+8eeco3LJ79ihiZSSX5SFJEnJ\nz7/fsTAbfvusqnB6CkZRKPd8oTI8HI1xD/++6lkOTQUC5AspMwKSv7Z1dCLtJyLr\nO+O0PcIa7O+2p+yMt717LMIrKzMfNU0fqtm6sk5RJ940Z9SCqC6VvgsCB2IUCpgL\nDQ94g/R/hvN98QFA5q6ksZEw4Y2VYmlTvGVclvyxKFYah/H5VSDBX6+QZ6TE2jrz\nCXfEOErMYmZapvIRu6swpqDkoSVtbYPdiBXV0iMVzf+VB7xEBeFGPBlGV27wYzzT\niJp1cSPXAgMBAAECggEAK2p239gWc5Q9XkqUetTP9/aMdK06vTcHqxfmNOkhz0cD\nogtN9Z/hGLAI37hsIIM2sOM/c8S4lCkKYInb3JyHGOSnrXu+ZXPcwCr0JC+vDsX3\nDxQq1GmCyxwddVdhe5Pt5qYMjVyET+sHX3OTmidNv4Jms0CrD5YTC0WKBZ9ZH+ni\n4YgKbu7JSiF5j7dw3jU4I/aUvm7kRDHUW4Vx7JIDMiP6w8euWdbri6q7QiYKwpl6\n4CbuaIa7A0sMbXjkivBoJjhP9uNWL4xJOB7/OiKM4Q4AmB/GfGDVEN0EUorn/KkG\njyWXs+Z2O9/4Fotq/gyB9xhBqOHZkduPkrk/LXNoKQKBgQDdM96jOZYefZgvO9t5\n6J/u6szZpmceaORQ49sprsP6EaRyrK2T4WK8qhi74j98yRjZPaM+Mm9+oMExYQdT\nxOotL8jJ4MYBUa4bmPUCSXD/4GxhV2g8vTWFjPFuHSICIXJU/TihiNHT8xyOYVmE\nT8KYdf4YKiNG0OPLcrqBy5XGfwKBgQDUEm2BLp1InaUScPoD1kg2SKCTqSMI8vkY\nRFJ+ObrWk3SabO7yQcsYo6Hk3VBVWzmBSYQJUvk2j2JCe6vc4eS/LffWRpjGi0sK\nCS746SuIW7xasWGqvB0zYuWClUHhYZQrYuq67kGzvbt91r5w6JtKiN3qJEQCeMnh\n3QligUXmqQKBgBpUh0bUnvroJkpRDLH5L7hnuJSbyyCCidLbHIZcqDVHDlUcGtlE\nddVRRfpvVvFKmquZO6o2pLDk/7oZ+55MDTftvS/Skp8rktb0IQ3xogLDOwNnPSAl\nwY4xFbfuvdKVGp/lOG159MgO4zJLgjVOrTIqsWE8+s/+I29fK7YxfpWPAoGBAMn3\nWs5iZGwZpnGvoosw8ciw1iyKMdF+BHh16NJJjIR6HdxLzixtOEyY2b+qfa0smdFl\nABgZKzoox31lZkGP6FeiIZux1CGR2r8OC+wFs+3C39jHgaomSPD9SHJaT0mjsoa3\nR7EK4wuYsAyiDPBetjX/rsgkDZkFC87MwPlNABMxAoGBAMAOkn3BRQQY4zgeh63E\nEDu1KyvG34pfXZz7BoMqfvznhGLTAfiABkOdphSxo+D4SxmwMFe0PY9pObAJBDvC\n6I+AOPsIcC+AF+Ng0PFTapYGfnzMbpFKjYpEaZChVRUFwmZ594SbwzX0D769pkpf\nNG545PZla1c4o9GWpQRcRP65\n-----END PRIVATE KEY-----\n",
+  "client_email": "rich-uncle-scrooge-bot@rich-uncle-scrooge.iam.gserviceaccount.com",
+  "client_id": "106694602768827482990",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/rich-uncle-scrooge-bot%40rich-uncle-scrooge.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
+CREDEOF
+cat > /var/www/smartfinances/.env << 'ENVEOF'
+TELEGRAM_BOT_TOKEN=8162966420:AAGsXVW0pjy2yxoC4J5uNJaBEL7ZFY_WgSE
+OPENAI_API_KEY=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
+GOOGLE_APPLICATION_CREDENTIALS=/app/google_credentials.json
+DATABASE_URL=sqlite:////app/data/smartfinances.db
+LOG_LEVEL=INFO
+ENVEOF
+chmod 600 /var/www/smartfinances/google_credentials.json; chmod 644 /var/www/smartfinances/.env; cd /var/www/smartfinances && git pull origin main; docker-compose up -d --build; sleep 5; echo ""; echo "✅ БОТ ЗАПУЩЕН!"; docker-compose ps; echo ""; echo "📊 Логи:"; docker-compose logs --tail=20
 
 ════════════════════════════════════════════════════════════════
 
-ДЕПЛОЙ (скопируй всю команду в веб-консоль Timeweb):
+ОБНОВЛЕНИЕ (после первого раза, в веб-консоли):
 
-cd /var/www/smartfinances && docker-compose down 2>/dev/null; docker-compose pull 2>/dev/null || git pull origin main; docker-compose up -d --build; sleep 5; echo ""; echo "✅ БОТ ЗАПУЩЕН!"; docker-compose ps; echo ""; echo "📊 Логи:"; docker-compose logs --tail=20
+cd /var/www/smartfinances && git pull origin main && docker-compose up -d --build && sleep 3 && docker-compose logs --tail=20
 
 ════════════════════════════════════════════════════════════════
 
