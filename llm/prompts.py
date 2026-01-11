@@ -129,13 +129,6 @@ def build_system_prompt() -> str:
 - "зп 100к и кофе 300" → intent: "batch", operations: [income, expense]
 - "удали 3 и 5" → intent: "batch", operations: [delete_transaction x2]
 
-ПРИМЕРЫ SHOW_ACCOUNTS:
-- "мои счета" → intent: "show_accounts"
-- "счета" → intent: "show_accounts"
-- "балансы" → intent: "show_accounts"
-- "сколько денег" → intent: "show_accounts"
-- "покажи счета" → intent: "show_accounts"
-
 ПРИМЕРЫ CLEAR_ALL_DATA:
 - "удали все счета и операции" → intent: "clear_all_data"
 - "убери все" → intent: "clear_all_data"
