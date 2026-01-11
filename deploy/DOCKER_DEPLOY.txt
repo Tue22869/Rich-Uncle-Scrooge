@@ -54,6 +54,11 @@ chmod 600 google_credentials.json
 chmod 644 .env
 mkdir -p data
 
+# Почистить старые контейнеры и образы
+docker stop $(docker ps -aq) 2>/dev/null || true
+docker rm $(docker ps -aq) 2>/dev/null || true
+docker rmi $(docker images -q smartfinances*) 2>/dev/null || true
+
 # Запустить Docker
 docker-compose up -d --build
 
@@ -65,6 +70,12 @@ docker-compose ps
 echo ""
 echo "📊 Логи:"
 docker-compose logs --tail=20
+
+════════════════════════════════════════════════════════════════
+
+ЕСЛИ ОШИБКА docker-compose (KeyError, ContainerConfig и т.д.):
+
+cd /var/www/smartfinances && docker stop $(docker ps -aq) 2>/dev/null; docker rm $(docker ps -aq) 2>/dev/null; docker system prune -af; docker-compose up -d --build && sleep 3 && docker-compose logs --tail=20
 
 ════════════════════════════════════════════════════════════════
 
