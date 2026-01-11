@@ -215,8 +215,15 @@ async def sheets_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             user.google_sheets_spreadsheet_id = spreadsheet_id
             db.commit()
+            
+            sa_email_confirm = get_service_account_email()
+            sa_confirm = sa_email_confirm if sa_email_confirm else "rich-uncle-scrooge-bot-648@rich-uncle-scrooge.iam.gserviceaccount.com"
+            
             await update.message.reply_text(
                 "✅ Сохранил твою таблицу.\n\n"
+                "⚠️ **Не забудь дать доступ!**\n"
+                "В Google Sheets нажми *Share* → добавь **Editor** для:\n"
+                f"`{sa_confirm}`\n\n"
                 "Команды:\n"
                 "• `/sheets_export` — выгрузить данные в таблицу\n"
                 "• `/sheets_import` — загрузить данные из таблицы",
@@ -242,10 +249,12 @@ async def sheets_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(
                 "📄 **Google Sheets настройка**\n\n"
-                "1) Создай таблицу в Google Sheets\n"
-                "2) Скопируй ссылку\n"
-                f"3) Дай доступ **Editor** для: {sa_line}\n"
-                "4) Пришли сюда командой:\n"
+                "**Шаг 1:** Создай таблицу в Google Sheets\n\n"
+                "**Шаг 2:** Нажми *Share* → добавь **Editor** для:\n"
+                f"{sa_line}\n"
+                "_(Без этого бот не сможет читать/писать в таблицу!)_\n\n"
+                "**Шаг 3:** Скопируй ссылку на таблицу\n\n"
+                "**Шаг 4:** Пришли сюда:\n"
                 "`/sheets <ссылка_на_таблицу>`\n\n"
                 "После настройки:\n"
                 "• `/sheets_export` — выгрузить данные в таблицу\n"
