@@ -2,9 +2,29 @@
 🐳 ДЕПЛОЙ ЧЕРЕЗ DOCKER (РЕКОМЕНДУЕТСЯ)
 ════════════════════════════════════════════════════════════════
 
-ПЕРВЫЙ РАЗ (в веб-консоли Timeweb):
+ПЕРВЫЙ РАЗ (скопируй ВСЁ и вставь в веб-консоль Timeweb):
 
-systemctl stop smartfinances 2>/dev/null; systemctl disable smartfinances 2>/dev/null; pkill -9 -f "python.*main.py" 2>/dev/null; sleep 2; cat > /var/www/smartfinances/google_credentials.json << 'CREDEOF'
+# Остановить старого бота
+systemctl stop smartfinances 2>/dev/null; systemctl disable smartfinances 2>/dev/null; pkill -9 -f "python.*main.py" 2>/dev/null; sleep 2
+
+# Установить Docker если нет
+if ! command -v docker &> /dev/null; then
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sh get-docker.sh
+    rm get-docker.sh
+fi
+
+# Установить docker-compose если нет
+if ! command -v docker-compose &> /dev/null; then
+    curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
+fi
+
+# Клонировать репозиторий
+cd /var/www && rm -rf smartfinances && git clone https://github.com/Tue22869/Rich-Uncle-Scrooge.git smartfinances && cd smartfinances
+
+# Создать google_credentials.json
+cat > google_credentials.json << 'CREDEOF'
 {
   "type": "service_account",
   "project_id": "rich-uncle-scrooge",
@@ -19,18 +39,36 @@ systemctl stop smartfinances 2>/dev/null; systemctl disable smartfinances 2>/dev
   "universe_domain": "googleapis.com"
 }
 CREDEOF
-cat > /var/www/smartfinances/.env << 'ENVEOF'
+
+# Создать .env
+cat > .env << 'ENVEOF'
 TELEGRAM_BOT_TOKEN=8162966420:AAGsXVW0pjy2yxoC4J5uNJaBEL7ZFY_WgSE
 OPENAI_API_KEY=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
 GOOGLE_APPLICATION_CREDENTIALS=/app/google_credentials.json
 DATABASE_URL=sqlite:////app/data/smartfinances.db
 LOG_LEVEL=INFO
 ENVEOF
-chmod 600 /var/www/smartfinances/google_credentials.json; chmod 644 /var/www/smartfinances/.env; cd /var/www/smartfinances && git pull origin main; docker-compose up -d --build; sleep 5; echo ""; echo "✅ БОТ ЗАПУЩЕН!"; docker-compose ps; echo ""; echo "📊 Логи:"; docker-compose logs --tail=20
+
+# Исправить права и создать папку для БД
+chmod 600 google_credentials.json
+chmod 644 .env
+mkdir -p data
+
+# Запустить Docker
+docker-compose up -d --build
+
+# Показать результат
+sleep 5
+echo ""
+echo "✅ БОТ ЗАПУЩЕН!"
+docker-compose ps
+echo ""
+echo "📊 Логи:"
+docker-compose logs --tail=20
 
 ════════════════════════════════════════════════════════════════
 
-ОБНОВЛЕНИЕ (после первого раза, в веб-консоли):
+ОБНОВЛЕНИЕ (после первого раза):
 
 cd /var/www/smartfinances && git pull origin main && docker-compose up -d --build && sleep 3 && docker-compose logs --tail=20
 
@@ -38,19 +76,18 @@ cd /var/www/smartfinances && git pull origin main && docker-compose up -d --buil
 
 ПОЛЕЗНЫЕ КОМАНДЫ:
 
-# Логи бота
-docker-compose logs -f
+# Логи бота (в реальном времени)
+cd /var/www/smartfinances && docker-compose logs -f
 
 # Перезапуск
-docker-compose restart
+cd /var/www/smartfinances && docker-compose restart
 
 # Остановка
-docker-compose down
+cd /var/www/smartfinances && docker-compose down
 
 # Статус
-docker-compose ps
+cd /var/www/smartfinances && docker-compose ps
 
 ════════════════════════════════════════════════════════════════
 ✅ С Docker больше НЕТ проблем с дубликатами и правами!
 ════════════════════════════════════════════════════════════════
-
