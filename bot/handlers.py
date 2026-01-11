@@ -678,6 +678,30 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         # Get or create user
         user = get_or_create_user(db, user_id)
         
+        # Check if user has pending clarification
+        pending_clarification = db.query(PendingAction).filter(
+            PendingAction.user_id == user.id,
+            PendingAction.action_type == ActionType.CLARIFICATION,
+            PendingAction.status == PendingStatus.PENDING,
+            PendingAction.expires_at > datetime.utcnow()
+        ).order_by(PendingAction.created_at.desc()).first()
+        
+        if pending_clarification:
+            # User is answering a clarification question
+            import json
+            payload = json.loads(pending_clarification.payload_json)
+            original_message = payload.get("original_message", "")
+            
+            # Combine original message with clarification answer
+            combined_message = f"{original_message}. {text}"
+            
+            # Mark clarification as completed
+            pending_clarification.status = PendingStatus.CONFIRMED
+            db.commit()
+            
+            # Parse combined message
+            text = combined_message
+        
         # Get user's accounts
         accounts_list = db.query(Account).filter(Account.user_id == user.id).all()
         
@@ -686,9 +710,23 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         if user.default_account_id:
             default_account = db.query(Account).filter(Account.id == user.default_account_id).first()
         
+        # Try to find by is_default flag if user.default_account_id is NULL
+        if not default_account:
+            default_account = db.query(Account).filter(
+                Account.user_id == user.id,
+                Account.is_default == True
+            ).first()
+            
+            # Sync user.default_account_id with account.is_default
+            if default_account:
+                user.default_account_id = default_account.id
+                db.commit()
+        
         # If no default account set but user has exactly one account, use it
         if not default_account and len(accounts_list) == 1:
             default_account = accounts_list[0]
+            user.default_account_id = default_account.id
+            db.commit()
         
         # Parse message with LLM
         accounts_for_llm = [
@@ -718,6 +756,23 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         
         if llm_response.intent == "clarify":
             clarify_q = llm_response.data.clarify_question or "Уточни, пожалуйста."
+            
+            # Save original message for context
+            import json
+            pending = PendingAction(
+                user_id=user.id,
+                action_type=ActionType.CLARIFICATION,
+                payload_json=json.dumps({
+                    "original_message": text,
+                    "question": clarify_q,
+                    "llm_data": llm_response.data.model_dump() if llm_response.data else {}
+                }),
+                expires_at=datetime.utcnow() + timedelta(minutes=10),
+                status=PendingStatus.PENDING
+            )
+            db.add(pending)
+            db.commit()
+            
             await update.message.reply_text(clarify_q)
             message_sent = True
             return

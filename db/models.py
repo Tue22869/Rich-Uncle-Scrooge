@@ -33,6 +33,7 @@ class ActionType(PyEnum):
     BATCH = "batch"
     SHEETS_IMPORT = "sheets_import"
     CLEAR_ALL_DATA = "clear_all_data"
+    CLARIFICATION = "clarification"
 
 
 class PendingStatus(PyEnum):
