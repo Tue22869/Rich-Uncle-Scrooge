@@ -226,7 +226,7 @@ async def sheets_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Step 3: show current status or instructions
         sa_email = get_service_account_email()
-        known_sa = "rich-uncle-scrooge-bot@rich-uncle-scrooge.iam.gserviceaccount.com"
+        known_sa = "rich-uncle-scrooge-bot-648@rich-uncle-scrooge.iam.gserviceaccount.com"
         sa_line = f"`{sa_email}`" if sa_email else f"`{known_sa}`"
         
         if user.google_sheets_spreadsheet_id:
@@ -546,7 +546,7 @@ _В отчёте: доходы/расходы/сальдо, сумма на вс
 **Настройка:**
 1) Создай таблицу в Google Sheets
 2) "Share" → добавь **Editor** для:
-   `rich-uncle-scrooge-bot@rich-uncle-scrooge.iam.gserviceaccount.com`
+   `rich-uncle-scrooge-bot-648@rich-uncle-scrooge.iam.gserviceaccount.com`
 3) Пришли в бот: `/sheets <ссылка_на_таблицу>`
 
 **Команды:**
@@ -907,25 +907,45 @@ async def handle_batch_intent(
     if not mutation_ops:
         return
     
-    # Validate all mutation operations first
+    # Collect accounts that will be created in this batch
+    accounts_to_create = set()
+    for op in mutation_ops:
+        if op.intent == "account_add":
+            acc_new = getattr(op.data, 'account_new', None)
+            if acc_new and getattr(acc_new, 'name', None):
+                accounts_to_create.add(acc_new.name.lower())
+    
+    # Validate all mutation operations
     all_errors = []
     validated_ops = []
     
     for i, op in enumerate(mutation_ops, 1):
-        # Create fake response for validation
-        fake_response = LLMResponse(
-            intent=op.intent,
-            confidence=0.9,
-            data=op.data,
-            errors=[]
-        )
-        
         errors = validate_mutation_data(db, user, op.intent, op.data)
-        if errors:
-            all_errors.append(f"Операция {i}: " + ", ".join(errors))
+        
+        # Filter out "account not found" errors if account will be created in this batch
+        filtered_errors = []
+        for error in errors:
+            # Check if error is about missing account
+            is_account_not_found = "не найден" in error.lower()
+            if is_account_not_found:
+                # Extract account name from error message
+                account_mentioned = False
+                for acc_name in accounts_to_create:
+                    if acc_name in error.lower():
+                        account_mentioned = True
+                        break
+                # Skip error if account will be created
+                if not account_mentioned:
+                    filtered_errors.append(error)
+            else:
+                filtered_errors.append(error)
+        
+        if filtered_errors:
+            all_errors.append(f"Операция {i}: " + ", ".join(filtered_errors))
         else:
             validated_ops.append(op)
     
+    # Only show errors if there are any after filtering
     if all_errors:
         error_text = "⚠️ Ошибки в операциях:\n" + "\n".join(all_errors)
         await update.message.reply_text(error_text)
