@@ -692,8 +692,20 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             payload = json.loads(pending_clarification.payload_json)
             original_message = payload.get("original_message", "")
             
-            # Combine original message with clarification answer
-            combined_message = f"{original_message}. {text}"
+            # Check if answer is an account name
+            answer_lower = text.lower().strip()
+            matching_account = None
+            for acc in db.query(Account).filter(Account.user_id == user.id).all():
+                if acc.name.lower() in answer_lower or answer_lower in acc.name.lower():
+                    matching_account = acc
+                    break
+            
+            if matching_account:
+                # User specified account name directly
+                combined_message = f"{original_message} со счёта {matching_account.name}"
+            else:
+                # Combine original message with clarification answer
+                combined_message = f"{original_message}. {text}"
             
             # Mark clarification as completed
             pending_clarification.status = PendingStatus.CONFIRMED
@@ -702,15 +714,17 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             # Parse combined message
             text = combined_message
         
-        # Get user's accounts
+        # Get user's accounts FIRST
         accounts_list = db.query(Account).filter(Account.user_id == user.id).all()
         
-        # Get default account
+        # SYNC default account BEFORE parsing
         default_account = None
+        
+        # 1. Check user.default_account_id
         if user.default_account_id:
             default_account = db.query(Account).filter(Account.id == user.default_account_id).first()
         
-        # Try to find by is_default flag if user.default_account_id is NULL
+        # 2. Try to find by is_default flag if user.default_account_id is NULL
         if not default_account:
             default_account = db.query(Account).filter(
                 Account.user_id == user.id,
@@ -721,23 +735,29 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             if default_account:
                 user.default_account_id = default_account.id
                 db.commit()
+                logger.info(f"Synced default_account_id={default_account.id} for user {user.id}")
         
-        # If no default account set but user has exactly one account, use it
+        # 3. If no default account set but user has exactly one account, use it
         if not default_account and len(accounts_list) == 1:
             default_account = accounts_list[0]
             user.default_account_id = default_account.id
+            default_account.is_default = True
             db.commit()
+            logger.info(f"Auto-set default account {default_account.name} for user {user.id}")
         
-        # Parse message with LLM
+        # NOW parse message with LLM (with correct default_account)
         accounts_for_llm = [
             {"name": acc.name, "currency": acc.currency, "balance": float(acc.balance)}
             for acc in accounts_list
         ]
         
+        default_account_name = default_account.name if default_account else None
+        logger.info(f"Parsing message with default_account={default_account_name}")
+        
         llm_response = await parse_message(
             text,
             accounts_for_llm,
-            default_account.name if default_account else None,
+            default_account_name,
             user.timezone
         )
         
