@@ -686,6 +686,10 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         if user.default_account_id:
             default_account = db.query(Account).filter(Account.id == user.default_account_id).first()
         
+        # If no default account set but user has exactly one account, use it
+        if not default_account and len(accounts_list) == 1:
+            default_account = accounts_list[0]
+        
         # Parse message with LLM
         accounts_for_llm = [
             {"name": acc.name, "currency": acc.currency, "balance": float(acc.balance)}

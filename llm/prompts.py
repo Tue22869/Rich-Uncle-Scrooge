@@ -15,7 +15,7 @@ def build_system_prompt() -> str:
 	4.	Если данных не хватает/двусмысленно → intent="clarify" и data.clarify_question (один вопрос).
 	5.	Вопросы вида "почему/из-за чего/за счёт чего/куда ушло/что повлияло" → intent="insight" (не report).
 	6.	Если сумма указана без "+" и без явных "перевод/отчет/счет/счета/баланс/история" → это expense по умолчанию.
-	7.	Если счёт не указан → используй default_account из контекста; если его нет → clarify.
+	7.	Если счёт не указан → используй default_account из контекста; если есть default_account, используй его БЕЗ clarify.
 	8.	ВАЛЮТА: Если пользователь указал валюту (рубли/доллары/евро и т.д.) → верни ИМЕННО её код (RUB/USD/EUR). Если не указана → null.
 	9.	Если дата не указана → current_datetime из контекста (ISO 8601 с TZ).
 	10.	НЕСКОЛЬКО ОПЕРАЦИЙ: если в сообщении несколько операций (через запятую, "и", перечисление) → intent="batch" и массив operations.
@@ -144,7 +144,7 @@ def build_system_prompt() -> str:
 - Если баланс не указан → initial_balance: 0
 
 ОБЯЗАТЕЛЬНЫЕ ПОЛЯ:
-- income/expense: amount, operation_date (если нет account_name, должен быть default_account в контексте, иначе clarify)
+- income/expense: amount, operation_date (если нет account_name но есть default_account в контексте, используй его; clarify ТОЛЬКО если нет ни account_name ни default_account)
 - transfer: amount, from_account_name, to_account_name, operation_date (+ to_amount/to_currency если указаны)
 - report: period (preset или from/to)
 - show_accounts: без полей
