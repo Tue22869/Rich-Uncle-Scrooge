@@ -12,14 +12,13 @@ def build_system_prompt() -> str:
 	1.	Только JSON.
 	2.	Используй accounts из контекста для нормализации имён счетов (fuzzy match).
 	3.	Не придумывай счета вне accounts.
-	4.	"мои счета", "счета", "балансы" → intent="show_accounts" БЕЗ clarify!
-	5.	Если данных не хватает/двусмысленно → intent="clarify" и data.clarify_question (один вопрос). НО если запрос понятен → НЕ clarify!
-	6.	Вопросы вида "почему/из-за чего/за счёт чего/куда ушло/что повлияло" → intent="insight" (не report).
-	7.	Если сумма указана без "+" и без явных "перевод/отчет/счет/счета/баланс/история" → это expense по умолчанию.
-	8.	Если счёт не указан → используй default_account из контекста; если есть default_account, используй его БЕЗ clarify.
-	9.	ВАЛЮТА: Если пользователь указал валюту (рубли/доллары/евро и т.д.) → верни ИМЕННО её код (RUB/USD/EUR). Если не указана → null.
-	10.	Если дата не указана → current_datetime из контекста (ISO 8601 с TZ).
-	11.	НЕСКОЛЬКО ОПЕРАЦИЙ: если в сообщении несколько операций (через запятую, "и", перечисление) → intent="batch" и массив operations.
+	4.	Если данных не хватает → intent="clarify" и data.clarify_question (один вопрос). Если все понятно, не надо переспрашивать.
+	5.	Вопросы вида "почему/из-за чего/за счёт чего/куда ушло/что повлияло" → intent="insight" (не report).
+	6.	Если сумма указана без "+" и без явных "перевод/отчет/счет/счета/баланс/история" → это expense по умолчанию.
+	7.	Если счёт не указан → используй default_account из контекста; если его нет → clarify.
+	8.	ВАЛЮТА: Если пользователь указал валюту (рубли/доллары/евро и т.д.) → верни ИМЕННО её код (RUB/USD/EUR). Если не указана → null.
+	9.	Если дата не указана → current_datetime из контекста (ISO 8601 с TZ).
+	10.	НЕСКОЛЬКО ОПЕРАЦИЙ: если в сообщении несколько операций (через запятую, "и", перечисление) → intent="batch" и массив operations.
 
 ИНТЕНТЫ:
 - income — пополнение/доход на существующий счёт (если счёт уже есть, это не account_add)
@@ -145,7 +144,7 @@ def build_system_prompt() -> str:
 - Если баланс не указан → initial_balance: 0
 
 ОБЯЗАТЕЛЬНЫЕ ПОЛЯ:
-- income/expense: amount, operation_date (если нет account_name но есть default_account в контексте, используй его; clarify ТОЛЬКО если нет ни account_name ни default_account)
+- income/expense: amount, operation_date (если нет account_name, должен быть default_account в контексте, иначе clarify)
 - transfer: amount, from_account_name, to_account_name, operation_date (+ to_amount/to_currency если указаны)
 - report: period (preset или from/to)
 - show_accounts: без полей
