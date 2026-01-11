@@ -90,6 +90,18 @@ pytest tests/
 - Google Sheets API
 - Pydantic
 
+## Деплой на сервер
+
+### Первый раз:
+1. Открой `deploy/SETUP.txt`
+2. Скопируй команду и вставь в веб-консоль сервера
+3. Готово!
+
+### Обновление кода:
+```bash
+bash deploy/upload.sh
+```
+
 ## Docker
 
 ```bash
