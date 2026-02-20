@@ -1077,7 +1077,7 @@ async def handle_report_intent(
     llm_response,
     original_text: str = ""
 ):
-    """Handle report intent (read-only, no confirmation)."""
+    """Handle report intent — shows static report + optional GPT analysis button."""
     data = llm_response.data
     period = data.period
 
@@ -1090,16 +1090,24 @@ async def handle_report_intent(
         user_timezone=user.timezone
     )
 
-    # Try smart LLM analysis first
-    data_str = format_report_for_analysis(report)
-    analysis = await generate_analysis(data_str, user_question=original_text)
+    text = format_report_text(report, user.timezone)
 
-    if analysis:
-        await update.message.reply_text(analysis)
+    # Encode period into callback_data (max 64 bytes total)
+    # Format: preset  OR  from_date,to_date
+    if period and period.preset and period.preset != "custom":
+        period_str = period.preset
+    elif period and period.from_date and period.to:
+        period_str = f"{period.from_date},{period.to}"
     else:
-        # Fallback to static template
-        text = format_report_text(report, user.timezone)
-        await update.message.reply_text(text)
+        period_str = "month"
+
+    keyboard = [[
+        InlineKeyboardButton(
+            "🤖 Анализ от GPT",
+            callback_data=f"fin:report_analysis:{user.id}:{period_str}"
+        )
+    ]]
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def handle_show_accounts_intent(
@@ -1788,6 +1796,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pending_id = int(parts[2])
             await handle_cancel(db, query, pending_id)
         
+        elif action == "report_analysis":
+            # fin:report_analysis:{user_id}:{period_str}
+            if len(parts) >= 4:
+                await handle_report_analysis_callback(db, query, parts[2], parts[3])
+
         elif action == "insight":
             # Handle insight action buttons
             sub_action = parts[2]
@@ -2355,6 +2368,45 @@ async def handle_cancel(db: Session, query, pending_id: int):
         logger.info("Message edited successfully")
     except Exception as e:
         logger.error(f"Failed to edit message: {e}", exc_info=True)
+
+
+async def handle_report_analysis_callback(db: Session, query, user_id_str: str, period_str: str):
+    """Handle 'Анализ от GPT' button on a report — re-fetch data and run LLM analysis."""
+    await query.answer("🤖 Анализирую...")
+
+    try:
+        user = db.query(User).filter(User.tg_user_id == int(user_id_str)).first()
+        if not user or user.tg_user_id != query.from_user.id:
+            await query.answer("Нет доступа.", show_alert=True)
+            return
+
+        # Decode period_str
+        if "," in period_str:
+            from_date, to_date = period_str.split(",", 1)
+            preset = None
+        else:
+            from_date, to_date, preset = None, None, period_str
+
+        report = get_report(
+            db,
+            user.id,
+            period_preset=preset,
+            from_date=from_date,
+            to_date=to_date,
+            user_timezone=user.timezone
+        )
+
+        data_str = format_report_for_analysis(report)
+        analysis = await generate_analysis(data_str)
+
+        if analysis:
+            await query.edit_message_text(analysis)
+        else:
+            await query.edit_message_text("❌ Не удалось сгенерировать анализ. Попробуй позже.")
+
+    except Exception as e:
+        logger.error(f"handle_report_analysis_callback error: {e}", exc_info=True)
+        await query.edit_message_text("❌ Произошла ошибка при анализе.")
 
 
 async def handle_insight_action(db: Session, query, sub_action: str, user_id: int):
