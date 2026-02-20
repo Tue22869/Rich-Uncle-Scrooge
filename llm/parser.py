@@ -9,7 +9,7 @@ from openai import AsyncOpenAI
 from pydantic import ValidationError
 
 from schemas.llm_schema import LLMResponse, LLMResponseData
-from llm.prompts import build_system_prompt, build_user_prompt
+from llm.prompts import build_system_prompt, build_user_prompt, build_analysis_system_prompt
 from utils.dates import now_in_timezone
 
 logger = logging.getLogger(__name__)
@@ -20,6 +20,7 @@ client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Model cascade configuration
 PRIMARY_MODEL = "gpt-5-mini"
 FALLBACK_MODEL = "gpt-5.1"
+ANALYSIS_MODEL = "gpt-5.1"  # Smarter model for free-form report/insight analysis
 
 # Cache the system prompt for OpenAI prompt caching
 _CACHED_SYSTEM_PROMPT = None
@@ -103,6 +104,33 @@ def _is_valid_response(response: LLMResponse) -> bool:
     if response.errors and len(response.errors) > 0:
         return False
     return True
+
+
+async def generate_analysis(data_str: str, user_question: str = "") -> Optional[str]:
+    """
+    Second-pass LLM call: given aggregated financial data as text,
+    generate a natural-language analysis in Russian.
+
+    Returns the analysis string, or None on failure (caller should fall back to template).
+    """
+    system_prompt = build_analysis_system_prompt()
+    user_content = f"Данные:\n{data_str}"
+    if user_question:
+        user_content += f"\n\nВопрос пользователя: {user_question}"
+
+    try:
+        response = await client.chat.completions.create(
+            model=ANALYSIS_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.4,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"generate_analysis failed: {e}")
+        return None
 
 
 async def parse_message(

@@ -19,6 +19,7 @@ def build_system_prompt() -> str:
 	8.	ВАЛЮТА: Если пользователь указал валюту (рубли/доллары/евро и т.д.) → верни ИМЕННО её код (RUB/USD/EUR). Если не указана → null.
 	9.	Если дата не указана → current_datetime из контекста (ISO 8601 с TZ).
 	10.	НЕСКОЛЬКО ОПЕРАЦИЙ: если в сообщении несколько операций (через запятую, "и", перечисление) → intent="batch" и массив operations.
+	11.	ИМЕНОВАННЫЙ МЕСЯЦ/ПЕРИОД: если пользователь упоминает конкретный месяц (январь, февраль, март, апрель, май, июнь, июль, август, сентябрь, октябрь, ноябрь, декабрь) или конкретный период → ВСЕГДА используй preset: "custom" с явными датами from/to. Пример: "за январь" → {"from": "2026-01-01", "to": "2026-01-31", "preset": "custom"}. Год определяй из current_datetime (если месяц уже прошёл — текущий год, если впереди — текущий год). preset: "month" используй ТОЛЬКО когда пользователь говорит "за этот месяц", "в этом месяце", "текущий месяц" без указания конкретного названия.
 
 ИНТЕНТЫ:
 - income — пополнение/доход на существующий счёт (если счёт уже есть, это не account_add)
@@ -106,7 +107,15 @@ def build_system_prompt() -> str:
     "description": "string",
     "transaction_id": число,
     "new_amount": число,
-    "clarify_question": "вопрос на русском"
+    "clarify_question": "вопрос на русском",
+    "insight_query": {
+      "metric": "expense|income|net",
+      "category": "категория или null",
+      "period": {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD", "preset": "today|week|month|year|custom"},
+      "compare_to": "prev_period|prev_month|prev_year|avg_3m|none",
+      "account_name": "счёт или null",
+      "currency": "валюта или null"
+    }
   },
   "errors": []
 }
@@ -129,6 +138,16 @@ def build_system_prompt() -> str:
 - "создай счет карта rub и счет крипта usdt" → intent: "batch", operations: [account_add x2]
 - "зп 100к и кофе 300" → intent: "batch", operations: [income, expense]
 - "удали 3 и 5" → intent: "batch", operations: [delete_transaction x2]
+
+ПРИМЕРЫ REPORT С ИМЕНОВАННЫМИ МЕСЯЦАМИ (текущий год 2026):
+- "отчет за январь" → intent: "report", data.period: {"from": "2026-01-01", "to": "2026-01-31", "preset": "custom"}
+- "статистика за ноябрь" → intent: "report", data.period: {"from": "2025-11-01", "to": "2025-11-30", "preset": "custom"}
+- "отчет за этот месяц" → intent: "report", data.period: {"preset": "month"}
+
+ПРИМЕРЫ INSIGHT:
+- "почему так много расходов в январе" → intent: "insight", data.insight_query: {"metric": "expense", "period": {"from": "2026-01-01", "to": "2026-01-31", "preset": "custom"}, "compare_to": "prev_month"}
+- "почему так много на еду в этом месяце" → intent: "insight", data.insight_query: {"metric": "expense", "category": "Еда и продукты", "period": {"preset": "month"}, "compare_to": "prev_month"}
+- "что повлияло на расходы на транспорт" → intent: "insight", data.insight_query: {"metric": "expense", "category": "Транспорт", "period": {"preset": "month"}, "compare_to": "prev_month"}
 
 ПРИМЕРЫ CLEAR_ALL_DATA:
 - "удали все счета и операции" → intent: "clear_all_data"
@@ -156,9 +175,108 @@ def build_system_prompt() -> str:
 - account_delete: account_name
 - account_rename: account_old_name, account_new_name
 - set_default_account: account_name
-- insight: insight_query.metric, insight_query.period (и insight_query.category если вопрос про конкретную категорию)
+- insight: data.insight_query.metric (обязательно), data.insight_query.period (обязательно, даже если пустой {}), data.insight_query.category (если вопрос про конкретную категорию). ВСЕГДА заполняй data.insight_query — не клади metric/period напрямую в data!
 
 Если чего-то не хватает → intent="clarify" + понятный вопрос на русском."""
+
+
+def build_analysis_system_prompt() -> str:
+    """System prompt for the second-pass LLM that analyzes aggregated financial data."""
+    return (
+        "Ты — умный личный финансовый ассистент. Тебе передают агрегированные данные о финансах "
+        "пользователя за период. Напиши живой, содержательный анализ на русском языке.\n\n"
+        "Правила:\n"
+        "— Говори как советник, а не как робот с шаблонными таблицами.\n"
+        "— Выдели главное: крупные статьи расходов, тренды, аномалии.\n"
+        "— Если есть вопрос пользователя — отвечай на него прямо и конкретно.\n"
+        "— Если есть сравнение с прошлым периодом — прокомментируй разницу.\n"
+        "— Называй конкретные суммы и категории.\n"
+        "— Умеренно используй эмодзи для структуры.\n"
+        "— Длина: 5–12 строк, не длиннее."
+    )
+
+
+def format_report_for_analysis(report: dict) -> str:
+    """Serialize report data into readable text for LLM analysis."""
+    period = report["period"]
+    fmt = lambda d: d.strftime("%d.%m.%Y") if hasattr(d, "strftime") else str(d)
+    lines = [f"Период: {fmt(period['from'])} — {fmt(period['to'])}"]
+
+    totals = report["totals"]
+    all_currencies = set(totals["income"].keys()) | set(totals["expense"].keys())
+    for cur in sorted(all_currencies):
+        inc = float(totals["income"].get(cur, 0))
+        exp = float(totals["expense"].get(cur, 0))
+        net = float(totals["net"].get(cur, 0))
+        lines.append(f"[{cur}] Доходы: {inc:,.2f}  Расходы: {exp:,.2f}  Сальдо: {net:,.2f}")
+
+    balances = report["balances"]
+    if balances:
+        bal_parts = [f"{cur}: {float(amt):,.2f}" for cur, amt in sorted(balances.items())]
+        lines.append(f"Текущие балансы: {', '.join(bal_parts)}")
+
+    exp_bd = report.get("breakdown_expense_by_category", [])
+    if exp_bd:
+        lines.append("Расходы по категориям:")
+        for item in exp_bd[:10]:
+            lines.append(f"  {item['category']} ({item['currency']}): {float(item['amount']):,.2f}  ({item['pct']}%)")
+
+    inc_bd = report.get("breakdown_income_by_category", [])
+    if inc_bd:
+        lines.append("Доходы по категориям:")
+        for item in inc_bd[:10]:
+            lines.append(f"  {item['category']} ({item['currency']}): {float(item['amount']):,.2f}  ({item['pct']}%)")
+
+    return "\n".join(lines)
+
+
+def format_insight_for_analysis(insight: dict) -> str:
+    """Serialize insight data into readable text for LLM analysis."""
+    period = insight["period"]
+    fmt = lambda d: d.strftime("%d.%m.%Y") if hasattr(d, "strftime") else str(d)
+    metric_name = {"expense": "Расходы", "income": "Доходы", "net": "Сальдо"}.get(insight.get("metric", ""), "Расходы")
+    currency = insight.get("currency") or "RUB"
+    category = insight.get("category") or ""
+
+    lines = [
+        f"Период: {fmt(period['from'])} — {fmt(period['to'])}",
+        f"Метрика: {metric_name}" + (f"  Категория: {category}" if category else ""),
+        f"Итого за период: {float(insight['current_total']):,.2f} {currency}",
+    ]
+
+    baseline_period = insight.get("baseline_period")
+    if baseline_period and float(insight.get("baseline_total", 0)) > 0:
+        bp_start = fmt(baseline_period["from"])
+        bp_end = fmt(baseline_period["to"])
+        sign = "+" if float(insight["delta"]) > 0 else ""
+        lines.append(
+            f"Предыдущий период ({bp_start}–{bp_end}): {float(insight['baseline_total']):,.2f} {currency}  "
+            f"(изменение: {sign}{insight['delta_pct']}%)"
+        )
+
+    top_txns = insight.get("top_transactions", [])
+    if top_txns:
+        lines.append("Крупнейшие операции:")
+        for tx in top_txns[:5]:
+            desc = tx.description or tx.category or "без описания"
+            date_str = tx.operation_date.strftime("%d.%m") if tx.operation_date else ""
+            lines.append(f"  {date_str}  {desc}: {float(tx.amount):,.2f} {tx.currency}")
+
+    top_days = insight.get("top_days", [])
+    if top_days:
+        lines.append("Дни с наибольшими тратами:")
+        for day in top_days[:3]:
+            dv = day["date"]
+            ds = dv.strftime("%d.%m.%Y") if hasattr(dv, "strftime") else str(dv)
+            lines.append(f"  {ds}: {float(day['amount']):,.2f} {currency}")
+
+    top_merchants = insight.get("top_merchants", [])
+    if top_merchants:
+        lines.append("По описаниям/местам:")
+        for m in top_merchants[:5]:
+            lines.append(f"  {m['description']}: {float(m['amount']):,.2f} {currency}")
+
+    return "\n".join(lines)
 
 
 def build_user_prompt(

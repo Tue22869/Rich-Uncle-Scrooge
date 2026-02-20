@@ -24,7 +24,7 @@ class InsightQuerySchema(BaseModel):
     """Insight query schema."""
     metric: Literal["expense", "income", "net"]
     category: Optional[str] = None
-    period: PeriodSchema
+    period: Optional[PeriodSchema] = None
     compare_to: Optional[Literal["prev_period", "prev_month", "prev_year", "avg_3m", "none"]] = "prev_month"
     account_name: Optional[str] = None
     currency: Optional[str] = None

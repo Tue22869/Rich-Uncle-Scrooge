@@ -21,6 +21,8 @@ from services.ledger import (
 )
 from services.reports import get_report, format_report_text
 from services.insights import get_insight, format_insight_text
+from llm.parser import generate_analysis
+from llm.prompts import format_report_for_analysis, format_insight_for_analysis
 from llm.parser import parse_message
 from utils.dates import now_in_timezone, parse_period, format_operation_date
 from utils.money import format_amount
@@ -813,7 +815,7 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             return
         
         if llm_response.intent == "report":
-            await handle_report_intent(db, update, user, llm_response)
+            await handle_report_intent(db, update, user, llm_response, original_text=text)
             message_sent = True
             return
         
@@ -823,7 +825,7 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             return
         
         if llm_response.intent == "insight":
-            await handle_insight_intent(db, update, user, llm_response)
+            await handle_insight_intent(db, update, user, llm_response, original_text=text)
             message_sent = True
             return
         
@@ -910,7 +912,7 @@ async def handle_batch_intent(
         elif op.intent == "list_transactions":
             await handle_list_transactions_intent(db, update, user, fake_response)
         elif op.intent == "insight":
-            await handle_insight_intent(db, update, user, fake_response)
+            await handle_insight_intent(db, update, user, fake_response)  # no original_text in batch
     
     # If no mutation operations, we're done
     if not mutation_ops:
@@ -1072,12 +1074,13 @@ async def handle_report_intent(
     db: Session,
     update: Update,
     user: User,
-    llm_response
+    llm_response,
+    original_text: str = ""
 ):
     """Handle report intent (read-only, no confirmation)."""
     data = llm_response.data
     period = data.period
-    
+
     report = get_report(
         db,
         user.id,
@@ -1086,9 +1089,17 @@ async def handle_report_intent(
         to_date=period.to if period else None,
         user_timezone=user.timezone
     )
-    
-    text = format_report_text(report, user.timezone)
-    await update.message.reply_text(text)
+
+    # Try smart LLM analysis first
+    data_str = format_report_for_analysis(report)
+    analysis = await generate_analysis(data_str, user_question=original_text)
+
+    if analysis:
+        await update.message.reply_text(analysis)
+    else:
+        # Fallback to static template
+        text = format_report_text(report, user.timezone)
+        await update.message.reply_text(text)
 
 
 async def handle_show_accounts_intent(
@@ -1384,7 +1395,8 @@ async def handle_insight_intent(
     db: Session,
     update: Update,
     user: User,
-    llm_response
+    llm_response,
+    original_text: str = ""
 ):
     """Handle insight intent (read-only, with action buttons)."""
     data = llm_response.data
@@ -1419,7 +1431,7 @@ async def handle_insight_intent(
             user_timezone=user.timezone
         )
     else:
-        period = insight_query.period
+        period = insight_query.period  # now Optional[PeriodSchema]
         
         insight = get_insight(
             db,
@@ -1435,8 +1447,11 @@ async def handle_insight_intent(
             user_timezone=user.timezone
         )
     
-    text = format_insight_text(insight, user.timezone)
-    
+    # Try smart LLM analysis first
+    data_str = format_insight_for_analysis(insight)
+    analysis = await generate_analysis(data_str, user_question=original_text)
+    text = analysis if analysis else format_insight_text(insight, user.timezone)
+
     # Add action buttons
     keyboard = [
         [
