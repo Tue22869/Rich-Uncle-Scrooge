@@ -153,7 +153,11 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Default to current month
         report = get_report(db, user.id, period_preset="month", user_timezone=user.timezone)
         text = format_report_text(report, user.timezone)
-        await update.message.reply_text(text)
+        keyboard = [[InlineKeyboardButton(
+            "🤖 Анализ от GPT",
+            callback_data=f"fin:report_analysis:{user.tg_user_id}:month"
+        )]]
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     except Exception as e:
         logger.error(f"Error in report_command: {e}")
         await update.message.reply_text("Произошла ошибка при формировании отчёта.")
@@ -1104,7 +1108,7 @@ async def handle_report_intent(
     keyboard = [[
         InlineKeyboardButton(
             "🤖 Анализ от GPT",
-            callback_data=f"fin:report_analysis:{user.id}:{period_str}"
+            callback_data=f"fin:report_analysis:{user.tg_user_id}:{period_str}"
         )
     ]]
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -1455,25 +1459,12 @@ async def handle_insight_intent(
             user_timezone=user.timezone
         )
     
-    # Try smart LLM analysis first
+    # LLM analysis; fallback to static template on failure
     data_str = format_insight_for_analysis(insight)
     analysis = await generate_analysis(data_str, user_question=original_text)
     text = analysis if analysis else format_insight_text(insight, user.timezone)
 
-    # Add action buttons
-    keyboard = [
-        [
-            InlineKeyboardButton("📌 Топ операций", callback_data=f"fin:insight:top:{user.id}"),
-            InlineKeyboardButton("📆 Сравнить с прошлым месяцем", callback_data=f"fin:insight:compare_prev_month:{user.id}")
-        ],
-        [
-            InlineKeyboardButton("📊 Показать по дням", callback_data=f"fin:insight:byday:{user.id}"),
-            InlineKeyboardButton("🏷️ Уточнить категорию", callback_data=f"fin:insight:category:{user.id}")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(text, reply_markup=reply_markup)
+    await update.message.reply_text(text)
 
 
 def validate_mutation_data(db: Session, user: User, intent: str, data) -> list:
@@ -1801,11 +1792,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if len(parts) >= 4:
                 await handle_report_analysis_callback(db, query, parts[2], parts[3])
 
-        elif action == "insight":
-            # Handle insight action buttons
-            sub_action = parts[2]
-            user_id = int(parts[3])
-            await handle_insight_action(db, query, sub_action, user_id)
         
     except Exception as e:
         logger.error(f"Error in callback_handler: {e}", exc_info=True)
@@ -2409,21 +2395,5 @@ async def handle_report_analysis_callback(db: Session, query, user_id_str: str, 
         await query.edit_message_text("❌ Произошла ошибка при анализе.")
 
 
-async def handle_insight_action(db: Session, query, sub_action: str, user_id: int):
-    """Handle insight action buttons."""
-    # This is a simplified version - in production you'd store insight query params
-    # For now, just show a message
-    if sub_action == "top":
-        await query.answer("Показываю топ операций...", show_alert=False)
-        # In production, fetch and show top transactions
-        await query.edit_message_text("Функция в разработке. Используй основной ответ выше.")
-    elif sub_action == "byday":
-        await query.answer("Показываю по дням...", show_alert=False)
-        await query.edit_message_text("Функция в разработке. Используй основной ответ выше.")
-    elif sub_action == "compare_prev_month":
-        await query.answer("Сравниваю с прошлым месяцем...", show_alert=False)
-        await query.edit_message_text("Функция в разработке. Используй основной ответ выше.")
-    elif sub_action == "category":
-        await query.answer("Уточняю категорию...", show_alert=False)
-        await query.edit_message_text("Функция в разработке. Используй основной ответ выше.")
+# handle_insight_action removed — insight buttons are no longer shown
 
