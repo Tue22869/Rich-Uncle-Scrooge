@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SmartFinances — Dev Guide</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3350;
+    --accent: #5b8dee;
+    --accent2: #7c5dfa;
+    --green: #3dd68c;
+    --yellow: #f5c542;
+    --red: #f06a6a;
+    --orange: #f0944a;
+    --text: #e2e8f0;
+    --muted: #7a859c;
+    --code-bg: #12151f;
+    --radius: 10px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    padding: 0 0 80px;
+  }
+
+  /* ── HEADER ── */
+  header {
+    background: linear-gradient(135deg, #1a1d27 0%, #151929 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 48px 40px 36px;
+  }
+  header h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.5px; }
+  header h1 span { color: var(--accent); }
+  header p { color: var(--muted); margin-top: 8px; font-size: 1rem; }
+  .badge-row { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.75rem; font-weight: 600; letter-spacing: 0.03em;
+    padding: 4px 10px; border-radius: 20px; text-transform: uppercase;
+  }
+  .badge-blue  { background: rgba(91,141,238,.15); color: var(--accent); border: 1px solid rgba(91,141,238,.3); }
+  .badge-green { background: rgba(61,214,140,.15); color: var(--green);  border: 1px solid rgba(61,214,140,.3); }
+  .badge-orange{ background: rgba(240,148,74,.15);  color: var(--orange); border: 1px solid rgba(240,148,74,.3); }
+  .badge-red   { background: rgba(240,106,106,.15); color: var(--red);   border: 1px solid rgba(240,106,106,.3); }
+  .badge-purple{ background: rgba(124,93,250,.15);  color: var(--accent2);border: 1px solid rgba(124,93,250,.3); }
+
+  /* ── LAYOUT ── */
+  .container { max-width: 900px; margin: 0 auto; padding: 0 40px; }
+
+  /* ── NAV ── */
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(15,17,23,.92); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 40px;
+  }
+  nav ul { display: flex; list-style: none; gap: 0; overflow-x: auto; }
+  nav ul li a {
+    display: block; padding: 14px 16px;
+    color: var(--muted); text-decoration: none; font-size: 0.875rem; font-weight: 500;
+    white-space: nowrap; border-bottom: 2px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  nav ul li a:hover { color: var(--text); border-color: var(--border); }
+  nav ul li a.active { color: var(--accent); border-color: var(--accent); }
+
+  /* ── SECTION ── */
+  section { padding: 48px 0 12px; }
+  h2 {
+    font-size: 1.35rem; font-weight: 700; margin-bottom: 20px;
+    display: flex; align-items: center; gap: 10px;
+    padding-bottom: 12px; border-bottom: 1px solid var(--border);
+  }
+  h2 .icon { font-size: 1.2rem; }
+  h3 { font-size: 1rem; font-weight: 600; margin: 24px 0 10px; color: var(--text); }
+
+  p { margin-bottom: 12px; color: var(--text); }
+  ul, ol { padding-left: 20px; margin-bottom: 12px; }
+  li { margin-bottom: 6px; color: var(--text); }
+  a { color: var(--accent); }
+
+  /* ── CARD ── */
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px 24px; margin-bottom: 16px;
+  }
+  .card-title { font-weight: 600; margin-bottom: 8px; font-size: 0.95rem; }
+
+  /* ── CODE ── */
+  pre, code {
+    font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+    font-size: 0.85rem;
+  }
+  code {
+    background: var(--code-bg); color: #a8d8a8;
+    padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border);
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px 20px;
+    overflow-x: auto; margin-bottom: 16px; line-height: 1.6;
+  }
+  pre code { background: none; border: none; padding: 0; color: inherit; }
+  .comment { color: #5a6a8a; }
+  .key    { color: #5b8dee; }
+  .val    { color: #a8d8a8; }
+  .cmd    { color: #f0944a; }
+
+  /* ── ALERT ── */
+  .alert {
+    display: flex; gap: 14px; align-items: flex-start;
+    border-radius: var(--radius); padding: 14px 18px; margin-bottom: 16px;
+    border: 1px solid;
+  }
+  .alert-icon { font-size: 1.2rem; flex-shrink: 0; margin-top: 1px; }
+  .alert-body  { flex: 1; }
+  .alert-body strong { display: block; margin-bottom: 4px; }
+  .alert-red    { background: rgba(240,106,106,.08); border-color: rgba(240,106,106,.3); }
+  .alert-red    .alert-icon { color: var(--red); }
+  .alert-yellow { background: rgba(245,197,66,.08); border-color: rgba(245,197,66,.3); }
+  .alert-yellow .alert-icon { color: var(--yellow); }
+  .alert-green  { background: rgba(61,214,140,.08); border-color: rgba(61,214,140,.3); }
+  .alert-green  .alert-icon { color: var(--green); }
+  .alert-blue   { background: rgba(91,141,238,.08); border-color: rgba(91,141,238,.3); }
+  .alert-blue   .alert-icon { color: var(--accent); }
+
+  /* ── TABLE ── */
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 0.875rem; }
+  th {
+    text-align: left; padding: 10px 14px;
+    background: var(--surface2); color: var(--muted);
+    font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+  .tag {
+    display: inline-block; font-size: 0.7rem; font-weight: 700;
+    padding: 2px 7px; border-radius: 3px; text-transform: uppercase;
+  }
+  .tag-req  { background: rgba(240,106,106,.2); color: var(--red); }
+  .tag-opt  { background: rgba(91,141,238,.15); color: var(--accent); }
+
+  /* ── FLOW DIAGRAM ── */
+  .flow {
+    display: flex; align-items: center; gap: 0;
+    flex-wrap: wrap; margin: 20px 0;
+  }
+  .flow-step {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 16px; font-size: 0.85rem;
+    text-align: center; min-width: 120px;
+  }
+  .flow-step .label { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 4px; }
+  .flow-step .name  { font-weight: 600; }
+  .flow-step .sub   { font-size: 0.75rem; color: var(--muted); margin-top: 3px; }
+  .flow-arrow { color: var(--muted); font-size: 1.2rem; padding: 0 8px; }
+  .flow-cond {
+    background: rgba(245,197,66,.08); border-color: rgba(245,197,66,.3);
+    color: var(--yellow);
+  }
+  .flow-ok   { background: rgba(61,214,140,.08); border-color: rgba(61,214,140,.3); color: var(--green); }
+  .flow-fail { background: rgba(240,106,106,.08); border-color: rgba(240,106,106,.3); color: var(--red); }
+
+  /* ── GRID ── */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } .container { padding: 0 20px; } header { padding: 32px 20px; } nav { padding: 0 20px; } }
+
+  /* ── FILE TREE ── */
+  .tree { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; font-family: monospace; font-size: 0.85rem; line-height: 1.9; margin-bottom: 16px; }
+  .tree .dir  { color: var(--accent); }
+  .tree .file { color: var(--text); }
+  .tree .note { color: var(--muted); }
+  .tree .warn { color: var(--red); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="container" style="padding:0">
+    <h1>SmartFinances <span>Dev Guide</span></h1>
+    <p>Онбординг нового разработчика — архитектура, нюансы, подводные камни</p>
+    <div class="badge-row">
+      <span class="badge badge-blue">Python 3.10</span>
+      <span class="badge badge-green">python-telegram-bot 20</span>
+      <span class="badge badge-purple">OpenAI GPT</span>
+      <span class="badge badge-orange">SpeechFlow Demo</span>
+      <span class="badge badge-red">SQLite / prod</span>
+    </div>
+  </div>
+</header>
+
+<nav>
+  <ul>
+    <li><a href="#quickstart">Quickstart</a></li>
+    <li><a href="#env">Env vars</a></li>
+    <li><a href="#arch">Архитектура</a></li>
+    <li><a href="#llm">LLM / каскад</a></li>
+    <li><a href="#speech">SpeechFlow</a></li>
+    <li><a href="#db">База данных</a></li>
+    <li><a href="#deploy">Deploy</a></li>
+    <li><a href="#gotchas">Грабли</a></li>
+  </ul>
+</nav>
+
+<div class="container">
+
+<!-- ══════════════════════════════════════════════════════════ QUICKSTART -->
+<section id="quickstart">
+  <h2><span class="icon">🚀</span> Quickstart (локальная разработка)</h2>
+
+  <div class="alert alert-red">
+    <span class="alert-icon">🚨</span>
+    <div class="alert-body">
+      <strong>НЕ используй продакшн токен бота для разработки!</strong>
+      Создай отдельного тестового бота через <code>@BotFather</code> и пиши только к нему.
+      Иначе сообщения реальных пользователей будут проходить через твой дев-инстанс.
+    </div>
+  </div>
+
+  <h3>1. Клонировать и поднять окружение</h3>
+  <pre><code><span class="cmd">git clone</span> https://github.com/Tue22869/Rich-Uncle-Scrooge.git
+<span class="cmd">cd</span> Rich-Uncle-Scrooge
+
+<span class="comment"># Создать виртуальное окружение</span>
+<span class="cmd">python -m venv</span> venv
+<span class="cmd">source</span> venv/bin/activate   <span class="comment"># Linux/macOS</span>
+<span class="comment"># venv\Scripts\activate   # Windows</span>
+
+<span class="cmd">pip install</span> -r requirements.txt</code></pre>
+
+  <h3>2. Заполнить .env</h3>
+  <pre><code><span class="cmd">cp</span> env.example .env
+<span class="comment"># Открой .env и вставь свои ключи (см. секцию Env vars)</span></code></pre>
+
+  <h3>3. Запустить</h3>
+  <pre><code><span class="cmd">python</span> main.py</code></pre>
+
+  <p>База данных (<code>smartfinances.db</code>) создаётся автоматически при первом запуске. Миграции встроены в <code>db/session.py</code> — Alembic не используется.</p>
+
+  <h3>Структура проекта</h3>
+  <div class="tree">
+    <span class="dir">SmartFinances/</span><br>
+    ├── <span class="file">main.py</span>            <span class="note">— точка входа, регистрация хендлеров</span><br>
+    ├── <span class="file">env.example</span>        <span class="note">— шаблон переменных окружения</span><br>
+    ├── <span class="warn">.env</span>               <span class="warn">— секреты, не в git!</span><br>
+    ├── <span class="file">docker-compose.yml</span> <span class="note">— деплой на прод</span><br>
+    ├── <span class="dir">bot/</span><br>
+    │   └── <span class="file">handlers.py</span>    <span class="note">— все Telegram-хендлеры (~2400 строк)</span><br>
+    ├── <span class="dir">llm/</span><br>
+    │   ├── <span class="file">parser.py</span>      <span class="note">— каскад моделей, parse_message(), generate_analysis()</span><br>
+    │   └── <span class="file">prompts.py</span>     <span class="note">— системный промпт, форматирование контекста</span><br>
+    ├── <span class="dir">services/</span><br>
+    │   ├── <span class="file">ledger.py</span>      <span class="note">— CRUD операций и счетов</span><br>
+    │   ├── <span class="file">reports.py</span>     <span class="note">— агрегация отчётов</span><br>
+    │   ├── <span class="file">insights.py</span>    <span class="note">— аналитика / инсайты</span><br>
+    │   ├── <span class="file">speech.py</span>      <span class="note">— SpeechFlow STT (голосовые сообщения)</span><br>
+    │   └── <span class="file">google_sheets_*.py</span> <span class="note">— интеграция с Google Sheets</span><br>
+    ├── <span class="dir">db/</span><br>
+    │   ├── <span class="file">models.py</span>      <span class="note">— SQLAlchemy модели</span><br>
+    │   └── <span class="file">session.py</span>     <span class="note">— движок, init_db(), inline-миграции</span><br>
+    ├── <span class="dir">schemas/</span><br>
+    │   └── <span class="file">llm_schema.py</span>  <span class="note">— Pydantic-схемы для валидации ответов LLM</span><br>
+    └── <span class="dir">utils/</span>             <span class="note">— даты, форматирование денег</span>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ ENV VARS -->
+<section id="env">
+  <h2><span class="icon">🔑</span> Переменные окружения</h2>
+
+  <div class="alert alert-yellow">
+    <span class="alert-icon">⚠️</span>
+    <div class="alert-body">
+      <strong>Файл .env никогда не коммитится в git</strong> — он в <code>.gitignore</code>.
+      Для онбординга попроси у тимлида реальные ключи для тестового окружения
+      или создай свои (инструкции ниже).
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Переменная</th>
+        <th>Статус</th>
+        <th>Описание</th>
+        <th>Где взять</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>TELEGRAM_BOT_TOKEN</code></td>
+        <td><span class="tag tag-req">Required</span></td>
+        <td>Токен бота. <strong>Для дева — отдельный бот!</strong></td>
+        <td><code>@BotFather</code> → /newbot</td>
+      </tr>
+      <tr>
+        <td><code>OPENAI_API_KEY</code></td>
+        <td><span class="tag tag-req">Required</span></td>
+        <td>Ключ OpenAI. Используется для парсинга команд (GPT-4o-mini / GPT-4o) и аналитики.</td>
+        <td><a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a></td>
+      </tr>
+      <tr>
+        <td><code>DATABASE_URL</code></td>
+        <td><span class="tag tag-opt">Optional</span></td>
+        <td>Путь к SQLite-базе. По умолчанию <code>sqlite:///./smartfinances.db</code> (рядом с main.py).</td>
+        <td>Менять не нужно для локальной разработки</td>
+      </tr>
+      <tr>
+        <td><code>SPEECHFLOW_KEY_ID</code></td>
+        <td><span class="tag tag-opt">Optional</span></td>
+        <td>ID ключа SpeechFlow для расшифровки голосовых сообщений. Без него голос не работает.</td>
+        <td><a href="https://speechflow.io" target="_blank">speechflow.io</a> → Dashboard → API Keys</td>
+      </tr>
+      <tr>
+        <td><code>SPEECHFLOW_KEY_SECRET</code></td>
+        <td><span class="tag tag-opt">Optional</span></td>
+        <td>Секрет к ключу SpeechFlow (пара с KEY_ID).</td>
+        <td>Там же</td>
+      </tr>
+      <tr>
+        <td><code>LOG_LEVEL</code></td>
+        <td><span class="tag tag-opt">Optional</span></td>
+        <td>Уровень логирования (<code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>). По умолчанию <code>INFO</code>.</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td><code>GOOGLE_APPLICATION_CREDENTIALS</code></td>
+        <td><span class="tag tag-opt">Optional</span></td>
+        <td>Путь к JSON-ключу сервисного аккаунта Google. Нужен только для экспорта в Google Sheets.</td>
+        <td>Google Cloud Console → Service Accounts</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">Минимальный .env для дева</div>
+      <pre style="margin:0"><code><span class="key">TELEGRAM_BOT_TOKEN</span>=<span class="val">123456:ABC-DEV-токен</span>
+<span class="key">OPENAI_API_KEY</span>=<span class="val">sk-proj-...</span></code></pre>
+    </div>
+    <div class="card">
+      <div class="card-title">Полный .env (прод)</div>
+      <pre style="margin:0"><code><span class="key">TELEGRAM_BOT_TOKEN</span>=<span class="val">...</span>
+<span class="key">OPENAI_API_KEY</span>=<span class="val">...</span>
+<span class="key">DATABASE_URL</span>=<span class="val">sqlite:////app/data/...</span>
+<span class="key">SPEECHFLOW_KEY_ID</span>=<span class="val">...</span>
+<span class="key">SPEECHFLOW_KEY_SECRET</span>=<span class="val">...</span>
+<span class="key">GOOGLE_APPLICATION_CREDENTIALS</span>=<span class="val">/app/google_credentials.json</span>
+<span class="key">LOG_LEVEL</span>=<span class="val">INFO</span></code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ ARCH -->
+<section id="arch">
+  <h2><span class="icon">🏗️</span> Архитектура</h2>
+
+  <p>Бот работает в режиме <strong>long polling</strong> (не webhook). Один процесс, <code>concurrent_updates=False</code> — апдейты обрабатываются строго последовательно, чтобы избежать гонок в SQLite.</p>
+
+  <h3>Поток обработки сообщения</h3>
+  <div class="flow">
+    <div class="flow-step">
+      <div class="label">Telegram</div>
+      <div class="name">Сообщение</div>
+      <div class="sub">текст / голос</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="label">handlers.py</div>
+      <div class="name">message_handler</div>
+      <div class="sub">или voice_handler</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step flow-cond">
+      <div class="label">llm/parser.py</div>
+      <div class="name">parse_message()</div>
+      <div class="sub">каскад моделей</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="label">services/</div>
+      <div class="name">ledger / reports</div>
+      <div class="sub">бизнес-логика</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step flow-ok">
+      <div class="label">Telegram</div>
+      <div class="name">Ответ</div>
+      <div class="sub">+ кнопки подтверждения</div>
+    </div>
+  </div>
+
+  <h3>Подтверждение действий (PendingAction)</h3>
+  <p>Перед каждой операцией (доход, расход, перевод, удаление) бот создаёт запись <code>PendingAction</code> в БД со статусом <code>PENDING</code> и показывает инлайн-кнопки <strong>Подтвердить / Отмена</strong>. Только после нажатия «Подтвердить» (callback_handler) запись меняется на <code>CONFIRMED</code> и операция применяется. PendingAction протухает через несколько минут (<code>expires_at</code>).</p>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">Основные модели БД</div>
+      <ul style="margin:0; padding-left:18px">
+        <li><code>User</code> — tg_user_id, timezone, default_account_id, google_sheets_id</li>
+        <li><code>Account</code> — название, валюта, баланс, is_default</li>
+        <li><code>Transaction</code> — income / expense / transfer, сумма, дата, категория</li>
+        <li><code>PendingAction</code> — очередь ожидающих подтверждения операций</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">Команды бота</div>
+      <ul style="margin:0; padding-left:18px">
+        <li><code>/start</code> — регистрация / приветствие</li>
+        <li><code>/accounts</code> — список счетов и балансов</li>
+        <li><code>/report</code> — финансовый отчёт за период</li>
+        <li><code>/sheets</code> — привязка Google Sheets</li>
+        <li><code>/sheets_export</code> — экспорт транзакций</li>
+        <li><code>/sheets_import</code> — импорт из таблицы</li>
+        <li><code>/help</code> — помощь</li>
+        <li>Любой текст / голос → LLM-парсер</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ LLM -->
+<section id="llm">
+  <h2><span class="icon">🤖</span> LLM — каскадная система моделей</h2>
+
+  <div class="alert alert-blue">
+    <span class="alert-icon">ℹ️</span>
+    <div class="alert-body">
+      <strong>Зачем каскад?</strong>
+      Быстрая и дешёвая модель (gpt-4o-mini) справляется с 90% запросов.
+      На сложных или неоднозначных фразах она возвращает низкий confidence или validation error —
+      тогда подключается более умная модель (gpt-4o). Так экономим деньги без потери качества.
+    </div>
+  </div>
+
+  <h3>Конфигурация моделей (<code>llm/parser.py</code>)</h3>
+  <pre><code><span class="key">PRIMARY_MODEL</span>  = <span class="val">"gpt-4o-mini"</span>   <span class="comment"># дешёвый, быстрый — первая попытка</span>
+<span class="key">FALLBACK_MODEL</span> = <span class="val">"gpt-4o"</span>        <span class="comment"># умнее, дороже — если primary не справился</span>
+<span class="key">ANALYSIS_MODEL</span> = <span class="val">"gpt-4o"</span>        <span class="comment"># для LLM-анализа отчётов и инсайтов</span></code></pre>
+
+  <h3>Поток каскада</h3>
+  <div class="flow">
+    <div class="flow-step">
+      <div class="label">Шаг 1</div>
+      <div class="name">gpt-4o-mini</div>
+      <div class="sub">JSON mode, temp=0</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step flow-cond">
+      <div class="label">Проверка</div>
+      <div class="name">Pydantic validation</div>
+      <div class="sub">intent ≠ unknown<br>errors пустой</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step flow-ok">
+      <div class="label">Успех</div>
+      <div class="name">Вернуть ответ</div>
+      <div class="sub">confidence OK</div>
+    </div>
+  </div>
+  <div class="flow">
+    <div class="flow-step flow-fail" style="min-width:80px">
+      <div class="name">Провал</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="label">Шаг 2</div>
+      <div class="name">gpt-4o</div>
+      <div class="sub">та же схема</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step flow-cond">
+      <div class="label">Проверка</div>
+      <div class="name">Pydantic validation</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step flow-ok">
+      <div class="label">Финал</div>
+      <div class="name">Вернуть / unknown</div>
+    </div>
+  </div>
+
+  <h3>Два типа LLM-вызовов</h3>
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">1. parse_message() — парсинг команд</div>
+      <ul style="margin:0; padding-left:18px">
+        <li>Режим: <code>json_object</code></li>
+        <li>Temperature: <code>0</code> (детерминированный)</li>
+        <li>Системный промпт кешируется в памяти (<code>_CACHED_SYSTEM_PROMPT</code>)</li>
+        <li>В контекст передаются счета пользователя и дата/время</li>
+        <li>Ответ валидируется через Pydantic (<code>LLMResponse</code>)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">2. generate_analysis() — аналитика</div>
+      <ul style="margin:0; padding-left:18px">
+        <li>Режим: free-form текст</li>
+        <li>Temperature: <code>0.4</code> (чуть живее)</li>
+        <li>Модель: ANALYSIS_MODEL (<code>gpt-4o</code>)</li>
+        <li>Вызывается по кнопке «Анализ» в отчётах</li>
+        <li>На вход — структурированный текст отчёта/инсайта</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Интенты LLM</h3>
+  <p>Промпт в <code>llm/prompts.py</code> обучает модель возвращать один из этих интентов:</p>
+  <table>
+    <thead><tr><th>Intent</th><th>Что делает</th></tr></thead>
+    <tbody>
+      <tr><td><code>income</code></td><td>Добавить доход на счёт</td></tr>
+      <tr><td><code>expense</code></td><td>Добавить расход</td></tr>
+      <tr><td><code>transfer</code></td><td>Перевод между двумя счетами</td></tr>
+      <tr><td><code>batch</code></td><td>Несколько операций в одном сообщении</td></tr>
+      <tr><td><code>report</code></td><td>Финансовый отчёт за период</td></tr>
+      <tr><td><code>list_transactions</code></td><td>Список конкретных операций</td></tr>
+      <tr><td><code>insight</code></td><td>Аналитический вопрос (почему/куда ушло)</td></tr>
+      <tr><td><code>show_accounts</code></td><td>Показать счета и балансы</td></tr>
+      <tr><td><code>account_add / delete / rename</code></td><td>Управление счетами</td></tr>
+      <tr><td><code>edit_transaction / delete_transaction</code></td><td>Редактирование/удаление операции</td></tr>
+      <tr><td><code>set_default_account</code></td><td>Сменить счёт по умолчанию</td></tr>
+      <tr><td><code>clear_all_data</code></td><td>Очистить все данные</td></tr>
+      <tr><td><code>clarify</code></td><td>Не хватает данных — LLM задаёт уточняющий вопрос</td></tr>
+      <tr><td><code>unknown</code></td><td>Не удалось распознать</td></tr>
+    </tbody>
+  </table>
+
+  <div class="alert alert-yellow">
+    <span class="alert-icon">⚠️</span>
+    <div class="alert-body">
+      <strong>Меняешь промпт? Сбрось кеш!</strong>
+      Системный промпт кешируется в <code>_CACHED_SYSTEM_PROMPT</code>.
+      При изменении <code>llm/prompts.py</code> нужно перезапустить процесс — при локальной разработке это происходит само, в продакшне нужен <code>docker restart</code>.
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ SPEECH -->
+<section id="speech">
+  <h2><span class="icon">🎙️</span> SpeechFlow — голосовые сообщения</h2>
+
+  <div class="alert alert-red">
+    <span class="alert-icon">🔴</span>
+    <div class="alert-body">
+      <strong>Мы на бесплатном демо-плане SpeechFlow!</strong>
+      Бесплатный план даёт <strong>30 минут</strong> распознавания суммарно.
+      После исчерпания голосовые сообщения перестанут работать до смены ключей или перехода на платный план.
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">Как работает</div>
+      <ol style="padding-left:18px; margin:0">
+        <li>Пользователь шлёт голосовое сообщение</li>
+        <li><code>voice_message_handler</code> скачивает <code>.ogg</code> во временный файл</li>
+        <li><code>services/speech.py</code> → <code>transcribe_audio()</code> загружает файл в SpeechFlow</li>
+        <li>Поллинг результата каждые 2 сек, макс 30 попыток</li>
+        <li>Полученный текст идёт в обычный <code>parse_message()</code></li>
+      </ol>
+    </div>
+    <div class="card">
+      <div class="card-title">Управление ключами</div>
+      <ol style="padding-left:18px; margin:0">
+        <li>Зайти на <a href="https://speechflow.io" target="_blank">speechflow.io</a></li>
+        <li>Dashboard → API Keys → Create new key</li>
+        <li>Обновить <code>SPEECHFLOW_KEY_ID</code> и <code>SPEECHFLOW_KEY_SECRET</code> в <code>.env</code> на сервере</li>
+        <li>Перезапустить контейнер: <code>docker restart smartfinances_bot</code></li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="alert alert-yellow">
+    <span class="alert-icon">⚠️</span>
+    <div class="alert-body">
+      <strong>Для локальной разработки с голосом:</strong>
+      создай <em>свой</em> демо-ключ на SpeechFlow и используй его в своём <code>.env</code>.
+      Не используй прод-ключи — один разработчик может случайно израсходовать весь лимит.
+    </div>
+  </div>
+
+  <h3>Конфигурация в <code>services/speech.py</code></h3>
+  <pre><code><span class="key">SPEECHFLOW_KEY_ID</span>     = os.getenv(<span class="val">"SPEECHFLOW_KEY_ID"</span>, <span class="val">""</span>)
+<span class="key">SPEECHFLOW_KEY_SECRET</span> = os.getenv(<span class="val">"SPEECHFLOW_KEY_SECRET"</span>, <span class="val">""</span>)
+
+CREATE_URL = <span class="val">"https://api.speechflow.io/asr/file/v1/create"</span>
+QUERY_URL  = <span class="val">"https://api.speechflow.io/asr/file/v1/query"</span>
+
+<span class="comment"># Поллинг: 30 попыток × 2 сек = до 60 сек ожидания</span>
+max_attempts  = 30
+poll_interval = 2.0</code></pre>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ DB -->
+<section id="db">
+  <h2><span class="icon">🗄️</span> База данных</h2>
+
+  <p>Используется <strong>SQLite</strong> через SQLAlchemy. На продакшне база лежит в Docker volume (<code>./data/smartfinances.db</code>), не в самом контейнере — данные переживают пересборку образа.</p>
+
+  <h3>Миграции</h3>
+  <div class="alert alert-blue">
+    <span class="alert-icon">ℹ️</span>
+    <div class="alert-body">
+      <strong>Alembic не используется.</strong>
+      Миграции — это <code>ALTER TABLE ... ADD COLUMN</code> вручную в функции <code>_ensure_sqlite_schema()</code> в <code>db/session.py</code>.
+      При добавлении нового поля в модель — добавляй туда же проверку.
+    </div>
+  </div>
+
+  <pre><code><span class="comment"># db/session.py — пример добавления колонки</span>
+<span class="key">def</span> _ensure_sqlite_schema():
+    <span class="key">with</span> engine.connect() <span class="key">as</span> conn:
+        cols = conn.execute(text(<span class="val">"PRAGMA table_info(users)"</span>)).fetchall()
+        existing = {row[1] <span class="key">for</span> row <span class="key">in</span> cols}
+
+        <span class="key">if</span> <span class="val">"new_column"</span> <span class="key">not in</span> existing:
+            conn.execute(text(<span class="val">"ALTER TABLE users ADD COLUMN new_column VARCHAR"</span>))
+            conn.commit()</code></pre>
+
+  <h3>Резервное копирование прода</h3>
+  <pre><code><span class="comment"># Скопировать базу с сервера локально</span>
+<span class="cmd">scp</span> root@31.130.131.71:/var/www/smartfinances/data/smartfinances.db ./backup.db</code></pre>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ DEPLOY -->
+<section id="deploy">
+  <h2><span class="icon">🚢</span> Deploy на прод</h2>
+
+  <p>Прод живёт на сервере <strong>31.130.131.71</strong>, код в <code>/var/www/smartfinances</code>, запускается через Docker Compose.</p>
+
+  <h3>Стандартный деплой</h3>
+  <pre><code><span class="comment"># 1. Запуш изменения в main</span>
+<span class="cmd">git push</span> origin main
+
+<span class="comment"># 2. Зайди на сервер</span>
+<span class="cmd">ssh</span> root@31.130.131.71
+
+<span class="comment"># 3. Подтяни и пересобери</span>
+<span class="cmd">cd</span> /var/www/smartfinances
+<span class="cmd">git pull</span> origin main
+<span class="cmd">docker compose</span> down && <span class="cmd">docker compose</span> up -d --build</code></pre>
+
+  <div class="alert alert-yellow">
+    <span class="alert-icon">⚠️</span>
+    <div class="alert-body">
+      <strong>docker restart ≠ docker compose up --build</strong><br>
+      <code>docker restart</code> перезапускает <em>старый</em> образ без нового кода.
+      Для применения изменений в Python-файлах нужен <code>--build</code>.
+      Исключение: если менялось только содержимое <code>.env</code> на сервере — достаточно <code>docker compose down &amp;&amp; docker compose up -d</code> (без --build).
+    </div>
+  </div>
+
+  <h3>Полезные команды на сервере</h3>
+  <pre><code><span class="comment"># Логи в реальном времени</span>
+<span class="cmd">docker logs</span> -f smartfinances_bot
+
+<span class="comment"># Статус контейнеров</span>
+<span class="cmd">docker ps</span>
+
+<span class="comment"># Зайти внутрь контейнера</span>
+<span class="cmd">docker exec</span> -it smartfinances_bot bash
+
+<span class="comment"># Проверить переменные окружения внутри контейнера</span>
+<span class="cmd">docker exec</span> smartfinances_bot env | <span class="cmd">grep</span> -E "TELEGRAM|OPENAI|SPEECHFLOW"</code></pre>
+
+  <h3>Структура Docker Compose</h3>
+  <pre><code><span class="comment"># docker-compose.yml — ключевые моменты</span>
+environment:
+  - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+  - OPENAI_API_KEY=${OPENAI_API_KEY}
+  - SPEECHFLOW_KEY_ID=${SPEECHFLOW_KEY_ID}
+  - SPEECHFLOW_KEY_SECRET=${SPEECHFLOW_KEY_SECRET}
+  <span class="comment"># ... остальные переменные</span>
+volumes:
+  - ./data:/app/data                              <span class="comment"># база данных пережигает пересборку</span>
+  - ./google_credentials.json:/app/google_credentials.json:ro</code></pre>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════ GOTCHAS -->
+<section id="gotchas">
+  <h2><span class="icon">💣</span> Грабли и нюансы</h2>
+
+  <div class="alert alert-red">
+    <span class="alert-icon">🚨</span>
+    <div class="alert-body">
+      <strong>Два бота на один токен = хаос</strong><br>
+      Если запустить локальный дев-инстанс с продакшн-токеном, он будет перехватывать сообщения реальных пользователей через long polling. Никогда так не делай. Создай отдельного бота для разработки.
+    </div>
+  </div>
+
+  <div class="alert alert-yellow">
+    <span class="alert-icon">⚠️</span>
+    <div class="alert-body">
+      <strong>SpeechFlow: 30 минут — это мало</strong><br>
+      Демо-лимит общий на всю команду. Если голос перестал работать — скорее всего лимит исчерпан.
+      Мониторить остаток можно в личном кабинете SpeechFlow. Заводи отдельный демо-аккаунт для разработки.
+    </div>
+  </div>
+
+  <div class="alert alert-yellow">
+    <span class="alert-icon">⚠️</span>
+    <div class="alert-body">
+      <strong>concurrent_updates=False</strong><br>
+      Бот обрабатывает апдейты последовательно — это сознательное решение для SQLite.
+      Не меняй это, пока база не будет заменена на PostgreSQL.
+    </div>
+  </div>
+
+  <div class="alert alert-blue">
+    <span class="alert-icon">ℹ️</span>
+    <div class="alert-body">
+      <strong>handlers.py — монолит ~2400 строк</strong><br>
+      Весь бот-логика живёт в одном файле. Прежде чем рефакторить — убедись что понимаешь flow PendingAction (подтверждения). Случайное дублирование хендлера или нарушение порядка регистрации в <code>main.py</code> ломает всё.
+    </div>
+  </div>
+
+  <div class="alert alert-blue">
+    <span class="alert-icon">ℹ️</span>
+    <div class="alert-body">
+      <strong>Telegram retry-логика</strong><br>
+      <code>Message.reply_text</code> и <code>CallbackQuery.edit_message_text</code> в <code>handlers.py</code> monkeypatched — добавлен авторетрай (4 попытки, exponential backoff) для <code>TimedOut</code> и <code>NetworkError</code>. Не удивляйся, если увидишь нестандартный стек.
+    </div>
+  </div>
+
+  <div class="alert alert-blue">
+    <span class="alert-icon">ℹ️</span>
+    <div class="alert-body">
+      <strong>Google Sheets — опциональная фича</strong><br>
+      Без <code>GOOGLE_APPLICATION_CREDENTIALS</code> бот работает нормально.
+      Если нужно тестировать экспорт — придётся создать сервисный аккаунт в Google Cloud и расшарить тестовую таблицу.
+    </div>
+  </div>
+
+  <div class="alert alert-yellow">
+    <span class="alert-icon">⚠️</span>
+    <div class="alert-body">
+      <strong>Промпт в <code>llm/prompts.py</code> — самый хрупкий файл</strong><br>
+      Любое изменение формата JSON-ответа в промпте должно синхронно отражаться в Pydantic-схеме <code>schemas/llm_schema.py</code>. Иначе Pydantic будет валить все запросы и бот будет отвечать «не понимаю».
+    </div>
+  </div>
+
+  <h3>Версии ключевых зависимостей</h3>
+  <table>
+    <thead><tr><th>Библиотека</th><th>Для чего</th></tr></thead>
+    <tbody>
+      <tr><td><code>python-telegram-bot 20+</code></td><td>Telegram Bot API, async</td></tr>
+      <tr><td><code>openai</code></td><td>Async OpenAI client</td></tr>
+      <tr><td><code>sqlalchemy</code></td><td>ORM для SQLite</td></tr>
+      <tr><td><code>pydantic</code></td><td>Валидация ответов LLM</td></tr>
+      <tr><td><code>aiohttp</code></td><td>Async HTTP для SpeechFlow</td></tr>
+      <tr><td><code>python-dotenv</code></td><td>Загрузка .env</td></tr>
+      <tr><td><code>pytz</code></td><td>Таймзоны пользователей</td></tr>
+      <tr><td><code>gspread / oauth2client</code></td><td>Google Sheets API</td></tr>
+    </tbody>
+  </table>
+</section>
+
+</div>
+
+<script>
+  // Highlight active nav link on scroll
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('nav a');
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        navLinks.forEach(a => a.classList.remove('active'));
+        const link = document.querySelector(`nav a[href="#${e.target.id}"]`);
+        if (link) link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach(s => obs.observe(s));
+</script>
+</body>
+</html>
