@@ -213,6 +213,7 @@
     <li><a href="#speech">SpeechFlow</a></li>
     <li><a href="#db">База данных</a></li>
     <li><a href="#deploy">Deploy</a></li>
+    <li><a href="#sheets">Google Sheets</a></li>
     <li><a href="#gotchas">Грабли</a></li>
   </ul>
 </nav>
@@ -692,6 +693,161 @@ volumes:
   - ./google_credentials.json:/app/google_credentials.json:ro</code></pre>
 </section>
 
+<!-- ══════════════════════════════════════════════════════════ SHEETS -->
+<section id="sheets">
+  <h2><span class="icon">📊</span> Google Sheets — интеграция</h2>
+
+  <div class="alert alert-blue">
+    <span class="alert-icon">ℹ️</span>
+    <div class="alert-body">
+      <strong>Фича опциональная.</strong>
+      Без <code>GOOGLE_APPLICATION_CREDENTIALS</code> бот работает полностью нормально.
+      Google Sheets нужны только если пользователь хочет видеть/редактировать данные в таблице.
+    </div>
+  </div>
+
+  <h3>Концепция — как это устроено</h3>
+  <p>У бота есть <strong>один сервисный аккаунт Google</strong> (Service Account) — это как «технический пользователь» в Google Cloud. Каждый пользователь бота создаёт <strong>свою собственную</strong> таблицу в Google Sheets и расшаривает её этому аккаунту как редактора. Бот ничего не хранит в облаке сам — он только читает и пишет в таблицу пользователя по запросу.</p>
+
+  <div class="flow">
+    <div class="flow-step">
+      <div class="label">Пользователь</div>
+      <div class="name">Создаёт таблицу</div>
+      <div class="sub">Google Sheets</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="label">Пользователь</div>
+      <div class="name">Share → Editor</div>
+      <div class="sub">email сервис-аккаунта</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step flow-cond">
+      <div class="label">Пользователь</div>
+      <div class="name">/sheets &lt;ссылка&gt;</div>
+      <div class="sub">в боте</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step flow-ok">
+      <div class="label">Готово</div>
+      <div class="name">export / import</div>
+      <div class="sub">работают</div>
+    </div>
+  </div>
+
+  <p>Spreadsheet ID пользователя сохраняется в поле <code>User.google_sheets_spreadsheet_id</code> в базе данных. У каждого пользователя своя таблица.</p>
+
+  <h3>Структура таблицы</h3>
+  <p>Бот создаёт и управляет несколькими вкладками в таблице пользователя:</p>
+  <table>
+    <thead><tr><th>Вкладка</th><th>Содержимое</th><th>Примечание</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>Балансы</code></td>
+        <td>Счета: название, валюта, баланс, основной</td>
+        <td>Можно редактировать название/валюту, добавлять строки для новых счетов</td>
+      </tr>
+      <tr>
+        <td><code>2026-01</code>, <code>2026-02</code>, …</td>
+        <td>Транзакции за каждый месяц + итоги по категориям справа</td>
+        <td>Создаётся по одной вкладке на каждый месяц, в котором есть операции</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>Формат транзакций: <code>Дата | Тип | Сумма | Валюта | Счет | Категория | Описание</code></p>
+
+  <h3>Команды для пользователей</h3>
+  <div class="card">
+    <pre style="margin:0"><code><span class="comment"># Привязать таблицу (вставь ссылку из адресной строки браузера)</span>
+/sheets https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit
+
+<span class="comment"># Посмотреть статус привязки</span>
+/sheets
+
+<span class="comment"># Отвязать таблицу</span>
+/sheets reset
+
+<span class="comment"># Выгрузить все данные из бота → таблица (перезаписывает!)</span>
+/sheets_export
+
+<span class="comment"># Загрузить данные из таблицы → бот (перезаписывает!)</span>
+/sheets_import</code></pre>
+  </div>
+
+  <div class="alert alert-red">
+    <span class="alert-icon">🚨</span>
+    <div class="alert-body">
+      <strong>Синхронизация НЕ автоматическая!</strong><br>
+      <code>/sheets_export</code> и <code>/sheets_import</code> — это ручные операции.
+      Типичный флоу: экспорт → редактируешь таблицу → импорт.
+      <code>/sheets_import</code> <strong>полностью заменяет</strong> данные в боте данными из таблицы — без возможности отката!
+    </div>
+  </div>
+
+  <h3>Настройка для разработчика (один раз на деплой)</h3>
+
+  <ol style="margin-bottom: 16px;">
+    <li>Открыть <a href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a> → создать новый проект (или использовать существующий)</li>
+    <li><strong>APIs &amp; Services → Enable APIs</strong> → найти и включить <strong>Google Sheets API</strong></li>
+    <li><strong>IAM &amp; Admin → Service Accounts → Create Service Account</strong>
+      <ul>
+        <li>Имя: например <code>smartfinances-bot</code></li>
+        <li>Роли давать не нужно — доступ управляется через расшаривание таблицы</li>
+      </ul>
+    </li>
+    <li>В созданном сервисном аккаунте: <strong>Keys → Add Key → JSON</strong> → скачать файл</li>
+    <li>Положить JSON-файл рядом с проектом, прописать путь в <code>.env</code>:<br>
+      <code>GOOGLE_APPLICATION_CREDENTIALS=./google_credentials.json</code></li>
+    <li>На продакшне — файл монтируется в Docker:<br>
+      <code>./google_credentials.json:/app/google_credentials.json:ro</code></li>
+  </ol>
+
+  <div class="alert alert-yellow">
+    <span class="alert-icon">⚠️</span>
+    <div class="alert-body">
+      <strong>Email сервисного аккаунта — публичная информация.</strong><br>
+      Его нужно передавать пользователям, чтобы они расшарили таблицу.
+      Бот показывает email автоматически при вызове <code>/sheets</code>.
+      На проде используется аккаунт:<br>
+      <code>rich-uncle-scrooge-bot-648@rich-uncle-scrooge.iam.gserviceaccount.com</code>
+    </div>
+  </div>
+
+  <h3>Пошаговый флоу для нового пользователя (инструкция внутри бота)</h3>
+  <div class="card">
+    <div class="card-title">Что показывает /sheets если таблица ещё не привязана</div>
+    <ol style="padding-left:18px; margin:0; color: var(--muted); font-size: 0.875rem;">
+      <li>Создай пустую таблицу на <a href="https://sheets.google.com" target="_blank">sheets.google.com</a></li>
+      <li>Нажми <strong>Share</strong> → добавь <strong>Editor</strong> для email сервисного аккаунта</li>
+      <li>Скопируй ссылку на таблицу</li>
+      <li>Пришли в бот: <code>/sheets &lt;ссылка&gt;</code></li>
+    </ol>
+  </div>
+
+  <h3>Как работает импорт из таблицы</h3>
+  <p><code>/sheets_import</code> читает таблицу и полностью заменяет данные пользователя в боте:</p>
+  <ul>
+    <li>Из вкладки <code>Балансы</code> — создаёт счета с указанными балансами</li>
+    <li>Из вкладок <code>YYYY-MM</code> — парсит транзакции (смотрит колонки Дата, Тип, Сумма, Валюта, Счет, Категория, Описание)</li>
+    <li>Строки с заголовками и итогами игнорируются</li>
+    <li>Тип транзакции определяется по значению в колонке «Тип»: <code>доход</code> / <code>расход</code></li>
+  </ul>
+  <p>Это значит, что в таблице можно редактировать данные (исправлять категории, описания, суммы) и потом «заливать» их обратно в бот через <code>/sheets_import</code>.</p>
+
+  <h3>Как тестировать локально</h3>
+  <pre><code><span class="comment"># 1. Создай тестовый Google Sheet под своим аккаунтом</span>
+<span class="comment"># 2. Либо используй существующий прод-ключ (попроси у тимлида)</span>
+<span class="comment">#    либо создай свой сервисный аккаунт в Google Cloud (бесплатно)</span>
+
+<span class="comment"># 3. В .env укажи путь к JSON-ключу</span>
+<span class="key">GOOGLE_APPLICATION_CREDENTIALS</span>=<span class="val">./google_credentials.json</span>
+
+<span class="comment"># 4. Расшарь тестовую таблицу на email из JSON (поле "client_email")</span>
+<span class="cmd">python</span> -c <span class="val">"import json; d=json.load(open('google_credentials.json')); print(d['client_email'])"</span>
+
+<span class="comment"># 5. Привяжи таблицу в тестовом боте: /sheets &lt;ссылка&gt;</span></code></pre>
+</section>
+
 <!-- ══════════════════════════════════════════════════════════ GOTCHAS -->
 <section id="gotchas">
   <h2><span class="icon">💣</span> Грабли и нюансы</h2>
@@ -735,15 +891,6 @@ volumes:
     <div class="alert-body">
       <strong>Telegram retry-логика</strong><br>
       <code>Message.reply_text</code> и <code>CallbackQuery.edit_message_text</code> в <code>handlers.py</code> monkeypatched — добавлен авторетрай (4 попытки, exponential backoff) для <code>TimedOut</code> и <code>NetworkError</code>. Не удивляйся, если увидишь нестандартный стек.
-    </div>
-  </div>
-
-  <div class="alert alert-blue">
-    <span class="alert-icon">ℹ️</span>
-    <div class="alert-body">
-      <strong>Google Sheets — опциональная фича</strong><br>
-      Без <code>GOOGLE_APPLICATION_CREDENTIALS</code> бот работает нормально.
-      Если нужно тестировать экспорт — придётся создать сервисный аккаунт в Google Cloud и расшарить тестовую таблицу.
     </div>
   </div>
 
