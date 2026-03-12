@@ -423,6 +423,16 @@ async def handle_undo(db: Session, query, pending_id: int):
         await query.edit_message_text("Операция уже отменена или недоступна.")
         return
 
+    # Only allow undo for the user's most recent confirmed operation
+    newer_confirmed = db.query(PendingAction).filter(
+        PendingAction.user_id == pending.user_id,
+        PendingAction.id > pending_id,
+        PendingAction.status == PendingStatus.CONFIRMED
+    ).first()
+    if newer_confirmed:
+        await query.answer("↩️ Отмена доступна только для последней операции.", show_alert=True)
+        return
+
     payload = json.loads(pending.payload_json) if isinstance(pending.payload_json, str) else pending.payload_json
     undo_data = payload.get("undo_data")
 
