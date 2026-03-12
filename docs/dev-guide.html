@@ -443,22 +443,22 @@
     <span class="alert-icon">ℹ️</span>
     <div class="alert-body">
       <strong>Зачем каскад?</strong>
-      Быстрая и дешёвая модель (gpt-4o-mini) справляется с 90% запросов.
+      Быстрая и дешёвая модель (gpt-5-mini) справляется с 90% запросов.
       На сложных или неоднозначных фразах она возвращает низкий confidence или validation error —
-      тогда подключается более умная модель (gpt-4o). Так экономим деньги без потери качества.
+      тогда подключается более умная модель (gpt-5.1). Так экономим деньги без потери качества.
     </div>
   </div>
 
   <h3>Конфигурация моделей (<code>llm/parser.py</code>)</h3>
-  <pre><code><span class="key">PRIMARY_MODEL</span>  = <span class="val">"gpt-4o-mini"</span>   <span class="comment"># дешёвый, быстрый — первая попытка</span>
-<span class="key">FALLBACK_MODEL</span> = <span class="val">"gpt-4o"</span>        <span class="comment"># умнее, дороже — если primary не справился</span>
-<span class="key">ANALYSIS_MODEL</span> = <span class="val">"gpt-4o"</span>        <span class="comment"># для LLM-анализа отчётов и инсайтов</span></code></pre>
+  <pre><code><span class="key">PRIMARY_MODEL</span>  = <span class="val">"gpt-5-mini"</span>   <span class="comment"># дешёвый, быстрый — первая попытка</span>
+<span class="key">FALLBACK_MODEL</span> = <span class="val">"gpt-5.1"</span>      <span class="comment"># умнее, дороже — если primary не справился</span>
+<span class="key">ANALYSIS_MODEL</span> = <span class="val">"gpt-5.1"</span>      <span class="comment"># для LLM-анализа отчётов и инсайтов</span></code></pre>
 
   <h3>Поток каскада</h3>
   <div class="flow">
     <div class="flow-step">
       <div class="label">Шаг 1</div>
-      <div class="name">gpt-4o-mini</div>
+      <div class="name">gpt-5-mini</div>
       <div class="sub">JSON mode, temp=0</div>
     </div>
     <div class="flow-arrow">→</div>
@@ -481,7 +481,7 @@
     <div class="flow-arrow">→</div>
     <div class="flow-step">
       <div class="label">Шаг 2</div>
-      <div class="name">gpt-4o</div>
+      <div class="name">gpt-5.1</div>
       <div class="sub">та же схема</div>
     </div>
     <div class="flow-arrow">→</div>
@@ -513,7 +513,7 @@
       <ul style="margin:0; padding-left:18px">
         <li>Режим: free-form текст</li>
         <li>Temperature: <code>0.4</code> (чуть живее)</li>
-        <li>Модель: ANALYSIS_MODEL (<code>gpt-4o</code>)</li>
+        <li>Модель: ANALYSIS_MODEL (<code>gpt-5.1</code>)</li>
         <li>Вызывается по кнопке «Анализ» в отчётах</li>
         <li>На вход — структурированный текст отчёта/инсайта</li>
       </ul>
@@ -913,7 +913,7 @@ volumes:
       <tr><td><code>aiohttp</code></td><td>Async HTTP для SpeechFlow</td></tr>
       <tr><td><code>python-dotenv</code></td><td>Загрузка .env</td></tr>
       <tr><td><code>pytz</code></td><td>Таймзоны пользователей</td></tr>
-      <tr><td><code>gspread / oauth2client</code></td><td>Google Sheets API</td></tr>
+      <tr><td><code>google-api-python-client / google-auth</code></td><td>Google Sheets API</td></tr>
     </tbody>
   </table>
 </section>

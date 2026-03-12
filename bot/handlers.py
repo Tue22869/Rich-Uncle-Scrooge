@@ -1762,6 +1762,16 @@ def build_preview_text(db: Session, user: User, intent: str, data) -> str:
     return "\n".join(lines)
 
 
+def _build_confirmed_text(original_text: str) -> str:
+    """Build confirmation message preserving original preview text."""
+    text = (original_text or "").rstrip()
+    for prompt in ["Подтверди все операции кнопками ниже.",
+                    "Подтверди действие кнопками ниже.",
+                    "Подтверди действие кнопками ниже.**"]:
+        text = text.replace(prompt, "")
+    return "✅ Записано\n\n" + text.strip()
+
+
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle inline button callbacks."""
     query = update.callback_query
@@ -1786,7 +1796,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif action == "cancel":
             pending_id = int(parts[2])
             await handle_cancel(db, query, pending_id)
-        
+
+        elif action == "undo":
+            pending_id = int(parts[2])
+            await handle_undo(db, query, pending_id)
+
         elif action == "report_analysis":
             # fin:report_analysis:{user_id}:{period_str}
             if len(parts) >= 4:
@@ -1826,15 +1840,15 @@ def execute_single_operation(db: Session, user: User, intent: str, data_dict: di
         
         # Always use account currency
         currency = account.currency
-        
+
         operation_date = None
         if data_dict.get("operation_date"):
             tz = get_user_timezone(user.timezone)
             operation_date = datetime.fromisoformat(data_dict["operation_date"].replace("Z", "+00:00"))
             if not operation_date.tzinfo:
                 operation_date = tz.localize(operation_date)
-        
-        add_income(
+
+        return add_income(
             db,
             user.id,
             amount,
@@ -1845,7 +1859,7 @@ def execute_single_operation(db: Session, user: User, intent: str, data_dict: di
             description=data_dict.get("description"),
             operation_date=operation_date
         )
-    
+
     elif intent == "expense":
         amount = Decimal(str(data_dict["amount"]))
         account_name = data_dict.get("account_name")
@@ -1876,7 +1890,7 @@ def execute_single_operation(db: Session, user: User, intent: str, data_dict: di
             if not operation_date.tzinfo:
                 operation_date = tz.localize(operation_date)
         
-        add_expense(
+        return add_expense(
             db,
             user.id,
             amount,
@@ -1887,7 +1901,7 @@ def execute_single_operation(db: Session, user: User, intent: str, data_dict: di
             description=data_dict.get("description"),
             operation_date=operation_date
         )
-    
+
     elif intent == "transfer":
         amount = Decimal(str(data_dict["amount"]))
         currency = data_dict.get("currency") or "RUB"
@@ -1913,7 +1927,7 @@ def execute_single_operation(db: Session, user: User, intent: str, data_dict: di
             to_amount = Decimal(str(data_dict["to_amount"]))
             to_currency = data_dict.get("to_currency")
         
-        transfer(
+        return transfer(
             db,
             user.id,
             amount,
@@ -1925,17 +1939,17 @@ def execute_single_operation(db: Session, user: User, intent: str, data_dict: di
             description=data_dict.get("description"),
             operation_date=operation_date
         )
-    
+
     elif intent == "account_add":
         acc_new = data_dict["account_new"]
-        create_account(
+        return create_account(
             db,
             user.id,
             acc_new["name"],
             acc_new.get("currency", "RUB"),
             Decimal(str(acc_new.get("initial_balance", 0)))
         )
-    
+
     elif intent == "account_delete":
         account = find_account_by_name(db, user.id, data_dict["account_name"])
         if not account:
@@ -2115,29 +2129,43 @@ async def handle_confirm(db: Session, query, pending_id: int):
             
             success_count = 0
             errors = []
-            
-            # Handle regular batch
+            undo_tx_ids = []
+
             for i, op in enumerate(operations, 1):
                 try:
-                    execute_single_operation(db, user, op["intent"], op["data"])
+                    result = execute_single_operation(db, user, op["intent"], op["data"])
                     success_count += 1
+                    if result and hasattr(result, 'id') and op["intent"] in ("income", "expense", "transfer"):
+                        undo_tx_ids.append(result.id)
                 except Exception as e:
                     errors.append(f"Операция {i}: {str(e)}")
-            
+
             if errors:
                 db.rollback()
                 error_text = f"⚠️ Выполнено {success_count}/{len(operations)}.\nОшибки:\n" + "\n".join(errors)
                 await query.edit_message_text(error_text)
             else:
                 pending.status = PendingStatus.CONFIRMED
+                if undo_tx_ids:
+                    payload["undo_data"] = {"tx_ids": undo_tx_ids}
+                    pending.payload_json = payload
                 db.commit()
-                await query.answer(f"✅ Выполнено {success_count} операций.")
-                await query.edit_message_text(f"✅ Выполнено {success_count} операций.")
+
+                confirmed_text = _build_confirmed_text(query.message.text)
+                if undo_tx_ids:
+                    keyboard = [[InlineKeyboardButton("↩️ Отменить", callback_data=f"fin:undo:{pending.id}")]]
+                    await query.answer(f"✅ Выполнено {success_count} операций.")
+                    await query.edit_message_text(confirmed_text, reply_markup=InlineKeyboardMarkup(keyboard))
+                else:
+                    await query.answer(f"✅ Выполнено {success_count} операций.")
+                    await query.edit_message_text(confirmed_text)
             return
         
         # Regular single operation
         data_dict = payload["data"]
-        
+        undo_tx_ids = []
+        undo_account_id = None
+
         if intent == "income":
             amount = Decimal(str(data_dict["amount"]))
             currency = data_dict.get("currency") or "RUB"
@@ -2161,7 +2189,7 @@ async def handle_confirm(db: Session, query, pending_id: int):
                 if not operation_date.tzinfo:
                     operation_date = tz.localize(operation_date)
             
-            add_income(
+            tx = add_income(
                 db,
                 user.id,
                 amount,
@@ -2172,7 +2200,8 @@ async def handle_confirm(db: Session, query, pending_id: int):
                 description=data_dict.get("description"),
                 operation_date=operation_date
             )
-        
+            undo_tx_ids = [tx.id]
+
         elif intent == "expense":
             amount = Decimal(str(data_dict["amount"]))
             account_name = data_dict.get("account_name")
@@ -2204,7 +2233,7 @@ async def handle_confirm(db: Session, query, pending_id: int):
                 if not operation_date.tzinfo:
                     operation_date = tz.localize(operation_date)
             
-            add_expense(
+            tx = add_expense(
                 db,
                 user.id,
                 amount,
@@ -2215,7 +2244,8 @@ async def handle_confirm(db: Session, query, pending_id: int):
                 description=data_dict.get("description"),
                 operation_date=operation_date
             )
-        
+            undo_tx_ids = [tx.id]
+
         elif intent == "transfer":
             amount = Decimal(str(data_dict["amount"]))
             from_account = find_account_by_name(db, user.id, data_dict["from_account_name"])
@@ -2242,7 +2272,7 @@ async def handle_confirm(db: Session, query, pending_id: int):
                 to_amount = Decimal(str(data_dict["to_amount"]))
                 to_currency = data_dict.get("to_currency")
             
-            transfer(
+            tx = transfer(
                 db,
                 user.id,
                 amount,
@@ -2254,16 +2284,18 @@ async def handle_confirm(db: Session, query, pending_id: int):
                 description=data_dict.get("description"),
                 operation_date=operation_date
             )
-        
+            undo_tx_ids = [tx.id]
+
         elif intent == "account_add":
             acc_new = data_dict["account_new"]
-            create_account(
+            new_acc = create_account(
                 db,
                 user.id,
                 acc_new["name"],
                 acc_new.get("currency", "RUB"),
                 Decimal(str(acc_new.get("initial_balance", 0)))
             )
+            undo_account_id = new_acc.id
         
         elif intent == "account_delete":
             account = find_account_by_name(db, user.id, data_dict["account_name"])
@@ -2305,14 +2337,24 @@ async def handle_confirm(db: Session, query, pending_id: int):
             tx_id = data_dict["transaction_id"]
             delete_transaction_by_id(db, user.id, tx_id)
         
-        # Mark as confirmed
+        # Mark as confirmed + store undo data
         pending.status = PendingStatus.CONFIRMED
+        if undo_tx_ids or undo_account_id:
+            payload["undo_data"] = {"tx_ids": undo_tx_ids, "account_id": undo_account_id}
+            pending.payload_json = payload
         db.commit()
-        
-        # Answer callback to remove loading state
-        await query.answer("✅ Подтверждено и записано.")
-        await query.edit_message_text("✅ Подтверждено и записано.")
-        
+
+        confirmed_text = _build_confirmed_text(query.message.text)
+
+        undoable = {"income", "expense", "transfer", "account_add"}
+        if intent in undoable and (undo_tx_ids or undo_account_id):
+            keyboard = [[InlineKeyboardButton("↩️ Отменить", callback_data=f"fin:undo:{pending.id}")]]
+            await query.answer("✅ Записано")
+            await query.edit_message_text(confirmed_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await query.answer("✅ Подтверждено и записано.")
+            await query.edit_message_text(confirmed_text)
+
     except Exception as e:
         db.rollback()
         logger.error(f"Error executing action: {e}", exc_info=True)
@@ -2354,6 +2396,51 @@ async def handle_cancel(db: Session, query, pending_id: int):
         logger.info("Message edited successfully")
     except Exception as e:
         logger.error(f"Failed to edit message: {e}", exc_info=True)
+
+
+async def handle_undo(db: Session, query, pending_id: int):
+    """Reverse a previously confirmed operation."""
+    pending = db.query(PendingAction).filter(PendingAction.id == pending_id).first()
+
+    if not pending:
+        await query.answer("Действие не найдено.", show_alert=True)
+        return
+
+    user = db.query(User).filter(User.id == pending.user_id).first()
+    if not user or user.tg_user_id != query.from_user.id:
+        await query.answer("Нет доступа.", show_alert=True)
+        return
+
+    if pending.status != PendingStatus.CONFIRMED:
+        await query.edit_message_text("Операция уже отменена или недоступна.")
+        return
+
+    payload = json.loads(pending.payload_json) if isinstance(pending.payload_json, str) else pending.payload_json
+    undo_data = payload.get("undo_data")
+
+    if not undo_data:
+        await query.answer("Отмена недоступна для этой операции.", show_alert=True)
+        return
+
+    try:
+        tx_ids = undo_data.get("tx_ids", [])
+        account_id = undo_data.get("account_id")
+
+        for tx_id in tx_ids:
+            delete_transaction_by_id(db, user.id, tx_id)
+
+        if account_id:
+            delete_account(db, user.id, account_id)
+
+        pending.status = PendingStatus.CANCELLED
+        db.commit()
+
+        await query.answer("↩️ Отменено")
+        await query.edit_message_text("↩️ Операция отменена.")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Undo error: {e}", exc_info=True)
+        await query.answer(f"Ошибка: {str(e)}", show_alert=True)
 
 
 async def handle_report_analysis_callback(db: Session, query, user_id_str: str, period_str: str):
