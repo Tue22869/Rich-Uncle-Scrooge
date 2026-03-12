@@ -261,7 +261,11 @@
     ├── <span class="warn">.env</span>               <span class="warn">— секреты, не в git!</span><br>
     ├── <span class="file">docker-compose.yml</span> <span class="note">— деплой на прод</span><br>
     ├── <span class="dir">bot/</span><br>
-    │   └── <span class="file">handlers.py</span>    <span class="note">— все Telegram-хендлеры (~2400 строк)</span><br>
+    │   ├── <span class="file">handlers.py</span>    <span class="note">— точки входа: команды, message/voice/callback handler</span><br>
+    │   ├── <span class="file">intents.py</span>     <span class="note">— обработка интентов (batch, report, mutation, …)</span><br>
+    │   ├── <span class="file">callbacks.py</span>   <span class="note">— confirm / cancel / undo / GPT-анализ</span><br>
+    │   ├── <span class="file">sheets.py</span>      <span class="note">— /sheets, /sheets_export, /sheets_import</span><br>
+    │   └── <span class="file">helpers.py</span>     <span class="note">— get_db, валидация, preview, execute_single_operation</span><br>
     ├── <span class="dir">llm/</span><br>
     │   ├── <span class="file">parser.py</span>      <span class="note">— каскад моделей, parse_message(), generate_analysis()</span><br>
     │   └── <span class="file">prompts.py</span>     <span class="note">— системный промпт, форматирование контекста</span><br>

@@ -8,8 +8,10 @@ from telegram.request import HTTPXRequest
 
 from bot.handlers import (
     start_command, accounts_command, report_command, help_command,
-    sheets_command, sheets_export_command, sheets_import_command,
     message_handler, voice_message_handler, callback_handler
+)
+from bot.sheets import (
+    sheets_command, sheets_export_command, sheets_import_command
 )
 from db.session import init_db
 
