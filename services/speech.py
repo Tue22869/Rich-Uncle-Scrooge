@@ -1,4 +1,5 @@
 """Speech-to-text service using SpeechFlow.io API."""
+import os
 import logging
 import asyncio
 import aiohttp
@@ -6,9 +7,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# SpeechFlow API credentials
-API_KEY_ID = "sKLTeeTIGX9vpp2s"
-API_KEY_SECRET = "usDy2871P776xRm6"
+SPEECHFLOW_KEY_ID = os.getenv("SPEECHFLOW_KEY_ID", "")
+SPEECHFLOW_KEY_SECRET = os.getenv("SPEECHFLOW_KEY_SECRET", "")
 
 # API endpoints
 CREATE_URL = "https://api.speechflow.io/asr/file/v1/create"
@@ -27,8 +27,8 @@ async def transcribe_audio(file_path: str, lang: str = "ru") -> Optional[str]:
         Transcribed text or None if failed
     """
     headers = {
-        "keyId": API_KEY_ID,
-        "keySecret": API_KEY_SECRET
+        "keyId": SPEECHFLOW_KEY_ID,
+        "keySecret": SPEECHFLOW_KEY_SECRET
     }
     
     try:
