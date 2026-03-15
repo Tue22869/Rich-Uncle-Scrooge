@@ -4,7 +4,7 @@ from decimal import Decimal
 from enum import Enum as PyEnum
 
 from sqlalchemy import (
-    Column, Integer, String, DateTime, ForeignKey, 
+    Column, Integer, String, DateTime, ForeignKey,
     DECIMAL, Boolean, Text, Enum as SQLEnum, JSON
 )
 from sqlalchemy.orm import relationship, declarative_base
@@ -44,6 +44,21 @@ class PendingStatus(PyEnum):
     EXPIRED = "expired"
 
 
+class SubscriptionStatus(PyEnum):
+    """Subscription status enum."""
+    ACTIVE = "active"
+    EXPIRED = "expired"
+    CANCELLED = "cancelled"
+
+
+class PaymentStatus(PyEnum):
+    """Payment status enum."""
+    PENDING = "pending"
+    SUCCEEDED = "succeeded"
+    CANCELLED = "cancelled"
+    REFUNDED = "refunded"
+
+
 class User(Base):
     """User model."""
     __tablename__ = "users"
@@ -67,6 +82,8 @@ class User(Base):
     )
     transactions = relationship("Transaction", back_populates="user", cascade="all, delete-orphan")
     pending_actions = relationship("PendingAction", back_populates="user", cascade="all, delete-orphan")
+    subscriptions = relationship("UserSubscription", back_populates="user", cascade="all, delete-orphan")
+    payments = relationship("Payment", back_populates="user", cascade="all, delete-orphan")
 
 
 class Account(Base):
@@ -134,4 +151,69 @@ class PendingAction(Base):
 
     # Relationships
     user = relationship("User", back_populates="pending_actions")
+
+
+class SubscriptionPlan(Base):
+    """Subscription plan model."""
+    __tablename__ = "subscription_plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True)
+    price = Column(DECIMAL(15, 2), nullable=False)
+    currency = Column(String, nullable=False, default="RUB")
+    duration_days = Column(Integer, nullable=False)
+    features_json = Column(JSON, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    subscriptions = relationship("UserSubscription", back_populates="plan")
+
+
+class UserSubscription(Base):
+    """User subscription model."""
+    __tablename__ = "user_subscriptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    plan_id = Column(Integer, ForeignKey("subscription_plans.id"), nullable=False)
+    start_date = Column(DateTime, nullable=False, default=datetime.utcnow)
+    end_date = Column(DateTime, nullable=False)
+    status = Column(
+        SQLEnum(SubscriptionStatus),
+        default=SubscriptionStatus.ACTIVE,
+        nullable=False,
+        index=True,
+    )
+    auto_renew = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    user = relationship("User", back_populates="subscriptions")
+    plan = relationship("SubscriptionPlan", back_populates="subscriptions")
+    payments = relationship("Payment", back_populates="subscription")
+
+
+class Payment(Base):
+    """Payment record model."""
+    __tablename__ = "payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    subscription_id = Column(Integer, ForeignKey("user_subscriptions.id"), nullable=True)
+    amount = Column(DECIMAL(15, 2), nullable=False)
+    currency = Column(String, nullable=False, default="RUB")
+    yookassa_payment_id = Column(String, unique=True, nullable=False, index=True)
+    status = Column(
+        SQLEnum(PaymentStatus),
+        default=PaymentStatus.PENDING,
+        nullable=False,
+        index=True,
+    )
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relationships
+    user = relationship("User", back_populates="payments")
+    subscription = relationship("UserSubscription", back_populates="payments")
 
