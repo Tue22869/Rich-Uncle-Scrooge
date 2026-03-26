@@ -5,6 +5,7 @@ import logging
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 
+from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from pydantic import ValidationError
 
@@ -13,6 +14,8 @@ from llm.prompts import build_system_prompt, build_user_prompt, build_analysis_s
 from utils.dates import now_in_timezone
 
 logger = logging.getLogger(__name__)
+
+load_dotenv()
 
 # Initialize async OpenAI client
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))

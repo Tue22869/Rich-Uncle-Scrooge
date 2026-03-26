@@ -8,7 +8,7 @@ from collections import defaultdict
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from db.models import User, Account, Transaction, TransactionType
+from db.models import User, Account, Transaction, TransactionType, Budget
 from utils.dates import parse_period, format_date
 from utils.money import format_amount
 
@@ -95,6 +95,9 @@ def get_report(
         db, user_id, TransactionType.EXPENSE, start, end
     )
     
+    # Budget progress for the period
+    budget_progress = _get_budget_progress(db, user_id, start, end)
+
     return {
         "totals": {
             "income": income_totals,
@@ -104,6 +107,7 @@ def get_report(
         "balances": balances,
         "breakdown_income_by_category": income_by_category,
         "breakdown_expense_by_category": expense_by_category,
+        "budget_progress": budget_progress,
         "period": {"from": start, "to": end}
     }
 
@@ -155,6 +159,35 @@ def _get_breakdown_by_category(
     # Sort by amount descending
     result.sort(key=lambda x: x["amount"], reverse=True)
     
+    return result
+
+
+def _get_budget_progress(db: Session, user_id: int, start: datetime, end: datetime) -> List[Dict]:
+    """Get budget progress for the given period."""
+    budgets = db.query(Budget).filter(Budget.user_id == user_id).all()
+    if not budgets:
+        return []
+
+    result = []
+    for budget in budgets:
+        spent = db.query(func.sum(Transaction.amount)).filter(
+            Transaction.user_id == user_id,
+            Transaction.type == TransactionType.EXPENSE,
+            Transaction.category == budget.category,
+            Transaction.currency == budget.currency,
+            Transaction.operation_date >= start,
+            Transaction.operation_date <= end,
+        ).scalar() or Decimal("0")
+
+        pct = int(spent / budget.monthly_limit * 100) if budget.monthly_limit > 0 else 0
+        result.append({
+            "category": budget.category,
+            "spent": spent,
+            "limit": budget.monthly_limit,
+            "currency": budget.currency,
+            "pct": pct,
+        })
+
     return result
 
 
@@ -223,5 +256,23 @@ def format_report_text(report: Dict, user_timezone: str = "Europe/London") -> st
                 lines.append(f"  ... Прочее — {format_amount(other, currency)} ({other_pct:.1f}%)")
             lines.append("")
     
+    # Budget progress
+    budget_progress = report.get("budget_progress", [])
+    if budget_progress:
+        lines.append("📋 Бюджеты:")
+        for bp in budget_progress:
+            pct = bp["pct"]
+            if pct >= 100:
+                icon = "🚨"
+            elif pct >= 80:
+                icon = "⚠️"
+            else:
+                icon = "✅"
+            lines.append(
+                f"  {icon} {bp['category']}: {format_amount(bp['spent'], bp['currency'])} "
+                f"из {format_amount(bp['limit'], bp['currency'])} ({pct}%)"
+            )
+        lines.append("")
+
     return "\n".join(lines)
 

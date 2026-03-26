@@ -1,0 +1,22 @@
+# .ralphrc - Ralph project configuration for SmartFinances
+PROJECT_NAME="Rich-Uncle-Scrooge"
+PROJECT_TYPE="python"
+
+# Claude Code CLI command
+CLAUDE_CODE_CMD="claude"
+
+# Loop settings
+MAX_CALLS_PER_HOUR=100
+CLAUDE_TIMEOUT_MINUTES=20
+CLAUDE_OUTPUT_FORMAT="json"
+
+# Tool permissions — Python project
+ALLOWED_TOOLS="Write,Read,Edit,Bash(*)"
+
+# Session management
+SESSION_CONTINUITY=true
+SESSION_EXPIRY_HOURS=24
+
+# Circuit breaker thresholds
+CB_NO_PROGRESS_THRESHOLD=3
+CB_SAME_ERROR_THRESHOLD=5

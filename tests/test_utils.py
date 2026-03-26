@@ -123,3 +123,28 @@ def test_parse_period_custom():
     assert start.day == 1
     assert end.day == 31
 
+
+def test_parse_period_last_month():
+    """Test parsing last_month period returns previous calendar month."""
+    start, end = parse_period("last_month", None, None, "Europe/London")
+    now = now_in_timezone("Europe/London")
+    # last_month start should be day 1
+    assert start.day == 1
+    # last_month end should be before current month
+    assert end.month != now.month or end.year != now.year
+    # end should be the last day of previous month
+    assert end.day >= 28  # At least 28 days in any month
+
+
+def test_parse_period_week():
+    """Test parsing week period starts on Monday."""
+    start, end = parse_period("week", None, None, "Europe/London")
+    assert start.weekday() == 0  # Monday
+
+
+def test_parse_period_year():
+    """Test parsing year period starts Jan 1."""
+    start, end = parse_period("year", None, None, "Europe/London")
+    assert start.month == 1
+    assert start.day == 1
+

@@ -36,6 +36,7 @@ def build_system_prompt() -> str:
 - account_rename — переименовать счёт
 - set_default_account — назначить дефолтный счёт
 - clear_all_data — удалить ВСЕ счета и операции (используй если пользователь явно говорит "убери все", "удали все", "очисти всё", "сбрось все данные")
+- set_budget — установить бюджет (лимит) на категорию: "бюджет на кофе 3000", "лимит на еду 15000"
 - batch — НЕСКОЛЬКО операций в одном сообщении (используй operations массив!)
 - clarify — не хватает данных
 - unknown — непонятно
@@ -176,6 +177,12 @@ def build_system_prompt() -> str:
 - account_rename: account_old_name, account_new_name
 - set_default_account: account_name
 - insight: data.insight_query.metric (обязательно), data.insight_query.period (обязательно, даже если пустой {}), data.insight_query.category (если вопрос про конкретную категорию). ВСЕГДА заполняй data.insight_query — не клади metric/period напрямую в data!
+- set_budget: data.budget_category (категория расходов), data.budget_limit (месячный лимит в рублях)
+
+ПРИМЕРЫ SET_BUDGET:
+- "бюджет на кофе 3000" → intent: "set_budget", data: {"budget_category": "Рестораны и бары", "budget_limit": 3000}
+- "лимит на еду 15000₽ в месяц" → intent: "set_budget", data: {"budget_category": "Еда и продукты", "budget_limit": 15000}
+- "установи бюджет на транспорт 5000" → intent: "set_budget", data: {"budget_category": "Транспорт", "budget_limit": 5000}
 
 Если чего-то не хватает → intent="clarify" + понятный вопрос на русском."""
 

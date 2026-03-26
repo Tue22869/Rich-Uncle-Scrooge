@@ -29,6 +29,13 @@ async def sheets_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = get_or_create_user(db, update.effective_user.id)
 
+        # Check subscription
+        from bot.middleware import check_subscription
+        allowed, paywall_text, paywall_keyboard = await check_subscription(db, user)
+        if not allowed:
+            await update.message.reply_text(paywall_text, reply_markup=paywall_keyboard, parse_mode="Markdown")
+            return
+
         from services.google_sheets_client import (
             is_configured,
             get_service_account_email,
@@ -130,6 +137,13 @@ async def sheets_export_command(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         user = get_or_create_user(db, update.effective_user.id)
 
+        # Check subscription
+        from bot.middleware import check_subscription
+        allowed, paywall_text, paywall_keyboard = await check_subscription(db, user)
+        if not allowed:
+            await update.message.reply_text(paywall_text, reply_markup=paywall_keyboard, parse_mode="Markdown")
+            return
+
         from services.google_sheets_client import is_configured, GoogleSheetsNotConfigured
         from services.sheets_sync import sync_user_to_sheets_async
 
@@ -181,6 +195,13 @@ async def sheets_import_command(update: Update, context: ContextTypes.DEFAULT_TY
     db = get_db()
     try:
         user = get_or_create_user(db, update.effective_user.id)
+
+        # Check subscription
+        from bot.middleware import check_subscription
+        allowed, paywall_text, paywall_keyboard = await check_subscription(db, user)
+        if not allowed:
+            await update.message.reply_text(paywall_text, reply_markup=paywall_keyboard, parse_mode="Markdown")
+            return
 
         from services.google_sheets_client import is_configured, GoogleSheetsNotConfigured
         from services.sheets_import import (

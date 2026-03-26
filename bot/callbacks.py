@@ -8,6 +8,9 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy.orm import Session
 
 from db.models import User, Account, PendingAction, ActionType, PendingStatus
+
+# Reusable menu button
+_MENU_KB = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Главное меню", callback_data="menu:main")]])
 from services.ledger import (
     find_account_by_name, add_income, add_expense,
     transfer, create_account, delete_account, rename_account,
@@ -169,12 +172,15 @@ async def handle_confirm(db: Session, query, pending_id: int):
 
                 confirmed_text = _build_confirmed_text(query.message.text)
                 if undo_tx_ids:
-                    keyboard = [[InlineKeyboardButton("↩️ Отменить", callback_data=f"fin:undo:{pending.id}")]]
+                    keyboard = [
+                        [InlineKeyboardButton("↩️ Отменить", callback_data=f"fin:undo:{pending.id}")],
+                        [InlineKeyboardButton("🏠 Главное меню", callback_data="menu:main")],
+                    ]
                     await query.answer(f"✅ Выполнено {success_count} операций.")
                     await query.edit_message_text(confirmed_text, reply_markup=InlineKeyboardMarkup(keyboard))
                 else:
                     await query.answer(f"✅ Выполнено {success_count} операций.")
-                    await query.edit_message_text(confirmed_text)
+                    await query.edit_message_text(confirmed_text, reply_markup=_MENU_KB)
             return
 
         # --- Regular single operation ---
@@ -360,12 +366,15 @@ async def handle_confirm(db: Session, query, pending_id: int):
 
         undoable = {"income", "expense", "transfer", "account_add"}
         if intent in undoable and (undo_tx_ids or undo_account_id):
-            keyboard = [[InlineKeyboardButton("↩️ Отменить", callback_data=f"fin:undo:{pending.id}")]]
+            keyboard = [
+                [InlineKeyboardButton("↩️ Отменить", callback_data=f"fin:undo:{pending.id}")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="menu:main")],
+            ]
             await query.answer("✅ Записано")
             await query.edit_message_text(confirmed_text, reply_markup=InlineKeyboardMarkup(keyboard))
         else:
             await query.answer("✅ Подтверждено и записано.")
-            await query.edit_message_text(confirmed_text)
+            await query.edit_message_text(confirmed_text, reply_markup=_MENU_KB)
 
     except Exception as e:
         db.rollback()
@@ -400,7 +409,7 @@ async def handle_cancel(db: Session, query, pending_id: int):
     await query.answer("❌ Отменено")
 
     try:
-        await query.edit_message_text("❌ Отменено. Напиши ещё раз, что ты хотел.")
+        await query.edit_message_text("❌ Отменено. Напиши ещё раз, что ты хотел.", reply_markup=_MENU_KB)
         logger.info("Message edited successfully")
     except Exception as e:
         logger.error(f"Failed to edit message: {e}", exc_info=True)
@@ -454,7 +463,7 @@ async def handle_undo(db: Session, query, pending_id: int):
         db.commit()
 
         await query.answer("↩️ Отменено")
-        await query.edit_message_text("↩️ Операция отменена.")
+        await query.edit_message_text("↩️ Операция отменена.", reply_markup=_MENU_KB)
     except Exception as e:
         db.rollback()
         logger.error(f"Undo error: {e}", exc_info=True)
@@ -490,9 +499,9 @@ async def handle_report_analysis_callback(db: Session, query, user_id_str: str, 
         analysis = await generate_analysis(data_str)
 
         if analysis:
-            await query.edit_message_text(analysis)
+            await query.edit_message_text(analysis, reply_markup=_MENU_KB)
         else:
-            await query.edit_message_text("❌ Не удалось сгенерировать анализ. Попробуй позже.")
+            await query.edit_message_text("❌ Не удалось сгенерировать анализ. Попробуй позже.", reply_markup=_MENU_KB)
 
     except Exception as e:
         logger.error(f"handle_report_analysis_callback error: {e}", exc_info=True)

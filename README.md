@@ -1,105 +1,97 @@
-# SmartFinances — Telegram-бот для учёта финансов
+# SmartFinances — Telegram-бот «Дядя Скрудж»
 
-Бот для учёта личных финансов с ИИ (GPT) для понимания естественного языка.
+Бот для учёта личных финансов с ИИ (GPT) для понимания естественного языка на русском.
 
 ## Возможности
 
 - 💰 Доходы и расходы естественным языком
 - 🔄 Переводы между счетами (включая кросс-валютные)
-- 📊 Отчёты с разбивкой по категориям
-- 🔍 Аналитика: "почему много на кофе"
+- 📊 Отчёты с разбивкой по категориям и бюджетами
+- 🔍 AI-аналитика: «почему так много на кофе»
+- 📋 Бюджеты по категориям с уведомлениями 80%/100%
+- 🔥 Стрики и ачивки (10 достижений)
+- 📊 Еженедельные и ежемесячные дайджесты (LLM-generated)
+- 💎 Premium-подписка через YooKassa (trial 14 дней)
 - ✅ Подтверждение операций через кнопки
+- 🎤 Голосовой ввод (SpeechFlow)
+- 📄 Google Sheets экспорт/импорт
+- 📦 Пакетный ввод нескольких операций
 
 ## Быстрый старт
 
 ```bash
-# Установка
 pip install -r requirements.txt
 cp env.example .env
 # Заполни OPENAI_API_KEY и TELEGRAM_BOT_TOKEN в .env
 
-# Запуск
 python main.py
 ```
 
-## Деплой
+## Структура проекта
 
-```bash
-# Обновление на сервере
-bash deploy/upload.sh
 ```
-
-## Google Sheets
-
-Экспорт и импорт данных через Google Таблицы.
-
-### Команды:
-- `/sheets <ссылка>` — подключить свою таблицу
-- `/sheets_export` — выгрузить данные в Google Sheets
-- `/sheets_import` — загрузить данные из Google Sheets (полная замена)
-- `/sheets reset` — отключить интеграцию
-
-### Структура:
-- **Балансы** — счета и текущие балансы
-- **YYYY-MM** — операции по месяцам с итогами
-
-### Настройка:
-1. Создай service account в Google Cloud
-2. Скачай JSON ключ
-3. Добавь email service account как редактора в свою таблицу
-4. Укажи путь к JSON в `.env`: `GOOGLE_APPLICATION_CREDENTIALS=path/to/key.json`
-
+main.py                         — Точка входа, регистрация хендлеров
+bot/
+  handlers.py                   — /start, /help, text, voice, callback router
+  menu.py                       — Persistent keyboard + inline menus
+  account_setup.py              — Онбординг: пошаговое создание счетов
+  subscription.py               — Premium: trial, покупка, статус
+  middleware.py                 — Paywall, проверка подписки
+  intents.py                    — Роутинг по LLM-интентам
+  callbacks.py                  — confirm/cancel/undo
+  helpers.py                    — get_db(), execute_single_operation
+  sheets.py                     — Google Sheets команды
+db/
+  models.py                     — User, Account, Transaction, Subscription, Budget
+  session.py                    — Engine, init_db, миграции
+llm/
+  parser.py                     — parse_message() → OpenAI → LLMResponse
+  prompts.py                    — Системные промпты
+schemas/
+  llm_schema.py                 — Pydantic-модели
+services/
+  ledger.py                     — CRUD: доходы, расходы, переводы, счета
+  reports.py                    — Отчёты с бюджетами
+  insights.py                   — AI-аналитика
+  billing.py                    — YooKassa: платежи, trial, подписки
+  retention.py                  — Дайджесты, стрики, ачивки, бюджеты
+  scheduler.py                  — JobQueue: cron-задачи
+  speech.py                     — SpeechFlow (voice → text)
+  google_sheets_client.py       — Google Sheets клиент
+  sheets_export.py / sheets_import.py / sheets_format.py / sheets_sync.py
+utils/
+  dates.py                      — Даты и таймзоны
+  money.py                      — format_amount()
+tests/
+  conftest.py                   — In-memory SQLite
+  test_ledger.py / test_parser.py / test_utils.py
+  test_billing.py / test_retention.py
+```
 
 ## Примеры
 
 ```
-+50000 зп                    # доход
 кофе 320                     # расход (категория автоматически)
-такси 500                    # расход → Транспорт/такси
++50000 зп                    # доход
 переведи 5к с карты на нал   # перевод
 отчет за ноябрь              # отчёт
 почему так много на еду      # аналитика
+бюджет на кофе 3000          # установить бюджет
 история операций             # список транзакций
-измени 3 сумма 500           # редактировать запись
-удали 5                      # удалить запись
 мои счета                    # баланс счетов
 ```
 
-## Структура
+## Google Sheets
 
-```
-bot/handlers.py      # Обработчики Telegram
-db/models.py         # SQLAlchemy модели
-llm/parser.py        # Парсер через GPT
-services/ledger.py   # Финансовые операции
-services/reports.py  # Отчёты
-services/insights.py # Аналитика
-```
+- `/sheets <ссылка>` — подключить таблицу
+- `/sheets_export` — выгрузить данные
+- `/sheets_import` — загрузить данные
+- `/sheets reset` — отключить
 
 ## Тесты
 
 ```bash
-pytest tests/
-```
-
-## Технологии
-
-- Python 3.10+, python-telegram-bot
-- SQLAlchemy + SQLite
-- OpenAI GPT (gpt-4o-mini/gpt-4o)
-- Google Sheets API
-- Pydantic
-
-## Деплой на сервер
-
-### Первый раз:
-1. Открой `deploy/SETUP.txt`
-2. Скопируй команду и вставь в веб-консоль сервера
-3. Готово!
-
-### Обновление кода:
-```bash
-bash deploy/upload.sh
+pytest tests/ -v
 ```
 
 ## Docker
@@ -107,3 +99,16 @@ bash deploy/upload.sh
 ```bash
 docker-compose up -d
 ```
+
+## Технологии
+
+- Python 3.10+, python-telegram-bot 20.7
+- SQLAlchemy + SQLite
+- OpenAI GPT (каскад: gpt-4o-mini → gpt-4o)
+- YooKassa (платежи)
+- Google Sheets API
+- Pydantic, SpeechFlow, APScheduler
+
+## Документация
+
+Подробная архитектурная документация: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)

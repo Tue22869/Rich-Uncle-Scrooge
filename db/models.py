@@ -55,18 +55,28 @@ class User(Base):
     default_account_id = Column(Integer, nullable=True)
     # Per-user Google Sheets spreadsheet id (not a file path, just the id from URL)
     google_sheets_spreadsheet_id = Column(String, nullable=True)
+    # Trial fields
+    trial_used = Column(Boolean, default=False, nullable=False)
+    trial_activated_at = Column(DateTime, nullable=True)
+    # Retention: streak tracking
+    streak_days = Column(Integer, default=0, nullable=False)
+    last_activity_date = Column(String, nullable=True)  # ISO date string
+    total_operations = Column(Integer, default=0, nullable=False)
+    achievements_json = Column(JSON, nullable=True)  # list of achievement codes
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships
     accounts = relationship(
-        "Account", 
+        "Account",
         primaryjoin="User.id == Account.user_id",
         foreign_keys="[Account.user_id]",
-        back_populates="user", 
+        back_populates="user",
         cascade="all, delete-orphan"
     )
     transactions = relationship("Transaction", back_populates="user", cascade="all, delete-orphan")
     pending_actions = relationship("PendingAction", back_populates="user", cascade="all, delete-orphan")
+    subscriptions = relationship("Subscription", back_populates="user", cascade="all, delete-orphan")
+    budgets = relationship("Budget", back_populates="user", cascade="all, delete-orphan")
 
 
 class Account(Base):
@@ -134,4 +144,50 @@ class PendingAction(Base):
 
     # Relationships
     user = relationship("User", back_populates="pending_actions")
+
+
+class SubscriptionPlan(PyEnum):
+    """Subscription plan enum."""
+    TRIAL = "trial"
+    MONTHLY = "monthly"
+    YEARLY = "yearly"
+
+
+class SubscriptionStatus(PyEnum):
+    """Subscription status enum."""
+    ACTIVE = "active"
+    EXPIRED = "expired"
+    CANCELLED = "cancelled"
+
+
+class Subscription(Base):
+    """Subscription model for tracking user payments and trial."""
+    __tablename__ = "subscriptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    plan = Column(SQLEnum(SubscriptionPlan), nullable=False)
+    status = Column(SQLEnum(SubscriptionStatus), default=SubscriptionStatus.ACTIVE, nullable=False)
+    payment_id = Column(String, nullable=True)  # YooKassa payment ID
+    paid_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    user = relationship("User", back_populates="subscriptions")
+
+
+class Budget(Base):
+    """Budget model for category spending limits."""
+    __tablename__ = "budgets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    category = Column(String, nullable=False)
+    monthly_limit = Column(DECIMAL(15, 2), nullable=False)
+    currency = Column(String, default="RUB", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    user = relationship("User", back_populates="budgets")
 

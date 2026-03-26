@@ -59,6 +59,9 @@ class LLMResponseData(BaseModel):
     # Insight fields (LLM may return these directly instead of nested in insight_query)
     metric: Optional[Literal["expense", "income", "net"]] = None
     compare_to: Optional[Literal["prev_period", "prev_month", "prev_year", "avg_3m", "none"]] = None
+    # Budget fields
+    budget_category: Optional[str] = None
+    budget_limit: Optional[float] = None
 
 
 class SingleOperation(BaseModel):
@@ -66,9 +69,9 @@ class SingleOperation(BaseModel):
     intent: Literal[
         "income", "expense", "transfer", "report", 
         "list_transactions", "edit_transaction", "delete_transaction",
-        "account_add", "account_delete", "account_rename", 
+        "account_add", "account_delete", "account_rename",
         "set_default_account", "show_accounts", "clarify", "unknown", "insight",
-        "clear_all_data"
+        "clear_all_data", "set_budget"
     ]
     data: LLMResponseData
 
@@ -76,12 +79,11 @@ class SingleOperation(BaseModel):
 class LLMResponse(BaseModel):
     """Full LLM response schema - supports single or batch operations."""
     intent: Literal[
-        "income", "expense", "transfer", "report", 
+        "income", "expense", "transfer", "report",
         "list_transactions", "edit_transaction", "delete_transaction",
-        "account_add", "account_delete", "account_rename", 
+        "account_add", "account_delete", "account_rename",
         "set_default_account", "show_accounts", "clarify", "unknown", "insight",
-        "batch",  # New: batch of multiple operations
-        "clear_all_data"  # New: clear all user data
+        "batch", "clear_all_data", "set_budget"
     ]
     confidence: float = Field(ge=0.0, le=1.0)
     data: LLMResponseData
@@ -98,7 +100,7 @@ class LLMResponse(BaseModel):
             "list_transactions", "edit_transaction", "delete_transaction",
             "account_add", "account_delete", "account_rename",
             "set_default_account", "show_accounts", "clarify", "unknown", "insight",
-            "batch", "clear_all_data"
+            "batch", "clear_all_data", "set_budget"
         ]
         if v not in valid_intents:
             raise ValueError(f"Invalid intent: {v}")

@@ -13,6 +13,7 @@ from bot.handlers import (
 from bot.sheets import (
     sheets_command, sheets_export_command, sheets_import_command
 )
+from bot.menu import menu_command
 from db.session import init_db
 
 # Load environment variables
@@ -32,12 +33,12 @@ def main():
     logger.info("Initializing database...")
     init_db()
     logger.info("Database initialized.")
-    
+
     # Get bot token
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
         raise ValueError("TELEGRAM_BOT_TOKEN not found in environment variables")
-    
+
     # Network settings: make outgoing requests more resilient to transient DNS/connection issues.
     request = HTTPXRequest(
         connect_timeout=20,
@@ -56,19 +57,28 @@ def main():
         .concurrent_updates(False)
         .build()
     )
-    
-    # Register handlers
+
+    # Register command handlers
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("accounts", accounts_command))
     application.add_handler(CommandHandler("report", report_command))
     application.add_handler(CommandHandler("sheets", sheets_command))
     application.add_handler(CommandHandler("sheets_export", sheets_export_command))
     application.add_handler(CommandHandler("sheets_import", sheets_import_command))
     application.add_handler(CommandHandler("help", help_command))
+
+    # Single callback handler that routes all callback prefixes
     application.add_handler(CallbackQueryHandler(callback_handler))
+
+    # Message handlers
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     application.add_handler(MessageHandler(filters.VOICE, voice_message_handler))
-    
+
+    # Setup scheduled jobs (weekly/monthly digests, reminders, subscription expiry)
+    from services.scheduler import setup_scheduled_jobs
+    setup_scheduled_jobs(application)
+
     # Start bot
     logger.info("Starting bot...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
@@ -76,4 +86,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

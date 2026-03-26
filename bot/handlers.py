@@ -12,7 +12,7 @@ from telegram.error import NetworkError, TimedOut
 from telegram.ext import ContextTypes
 from sqlalchemy.orm import Session
 
-from db.models import User, Account, PendingAction, ActionType, PendingStatus
+from db.models import User, Account, PendingAction, ActionType, PendingStatus, Budget
 from services.ledger import get_or_create_user, find_account_by_name
 from services.reports import get_report, format_report_text
 from llm.parser import parse_message
@@ -29,6 +29,9 @@ from bot.callbacks import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Reusable inline button row for "Главное меню"
+MENU_BUTTON = [InlineKeyboardButton("🏠 Главное меню", callback_data="menu:main")]
 
 # --- Telegram send/edit reliability ---
 # Sometimes Telegram API calls fail transiently (DNS hiccups, short disconnects).
@@ -73,35 +76,55 @@ CallbackQuery.edit_message_text = _callback_edit_message_text_retry  # type: ign
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /start command."""
+    """Handle /start command — onboarding with buttons."""
     logger.info(f"start_command called by user {update.effective_user.id}")
     db = get_db()
     try:
         user = get_or_create_user(db, update.effective_user.id)
-        
+
         accounts = db.query(Account).filter(Account.user_id == user.id).all()
-        
+
         if not accounts:
+            # New user onboarding — button-based account creation
+            buttons = [
+                [
+                    InlineKeyboardButton("💵 Наличные (RUB)", callback_data="acct:create:Наличные:RUB"),
+                    InlineKeyboardButton("💳 Карта (RUB)", callback_data="acct:create:Карта:RUB"),
+                ],
+                [
+                    InlineKeyboardButton("💲 Карта (USD)", callback_data="acct:create:Карта USD:USD"),
+                    InlineKeyboardButton("💶 Карта (EUR)", callback_data="acct:create:Карта EUR:EUR"),
+                ],
+                [InlineKeyboardButton("✏️ Создать свой счёт", callback_data="acct:custom")],
+            ]
+
+            # Offer trial if not used
+            if not user.trial_used:
+                buttons.append([
+                    InlineKeyboardButton("🎁 Пробный период (14 дней)", callback_data="sub:activate_trial"),
+                ])
+
+            buttons.append([InlineKeyboardButton("❓ Помощь", callback_data="menu:help")])
+
             await update.message.reply_text(
-                "💰 Дядя Скрудж к вашим услугам!\n\n"
-                "Буду считать твои деньги и следить, чтобы ни одна монетка не пропала.\n\n"
-                "Для начала создай счёт:\n"
-                "«создай счет наличка rub» или «добавь счет карта usd»"
+                "💰 *Дядя Скрудж к вашим услугам!*\n\n"
+                "Буду считать твои деньги и следить, чтобы ни одна монетка не пропала. 🦆\n\n"
+                "Для начала создай свой первый счёт:",
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode="Markdown",
             )
         else:
+            # Returning user — show main menu
+            from bot.menu import _show_main_menu
+            # Send a welcome-back text, then show menu
             accounts_text = "\n".join([
                 f"  • {acc.name} ({acc.currency}): {format_amount(acc.balance, acc.currency)}"
                 for acc in accounts
             ])
             await update.message.reply_text(
-                f"💰 С возвращением! Твои счета:\n{accounts_text}\n\n"
-                "Рассказывай о доходах и расходах — всё запишу.\n\n"
-                "Примеры:\n"
-                "• кофе 320\n"
-                "• +50000 зп\n"
-                "• переведи 10к с карты на нал\n"
-                "• отчет за ноябрь"
+                f"💰 С возвращением! Твои счета:\n{accounts_text}"
             )
+            await _show_main_menu(update)
     except Exception as e:
         logger.error(f"Error in start_command: {e}")
         await update.message.reply_text("Произошла ошибка. Попробуй позже.")
@@ -117,11 +140,21 @@ async def accounts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not user:
             await update.message.reply_text("Сначала используй /start")
             return
-        
+
+        # Check subscription
+        from bot.middleware import check_subscription
+        allowed, paywall_text, paywall_keyboard = await check_subscription(db, user)
+        if not allowed:
+            await update.message.reply_text(paywall_text, reply_markup=paywall_keyboard, parse_mode="Markdown")
+            return
+
         accounts = db.query(Account).filter(Account.user_id == user.id).all()
         
         if not accounts:
-            await update.message.reply_text("💰 Пока пусто. Создай первый счёт!")
+            await update.message.reply_text(
+                "💰 Пока пусто. Создай первый счёт!",
+                reply_markup=InlineKeyboardMarkup([MENU_BUTTON]),
+            )
         else:
             lines = ["💰 Твои счета:\n"]
             for acc in accounts:
@@ -129,7 +162,10 @@ async def accounts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 lines.append(
                     f"  • {acc.name} ({acc.currency}): {format_amount(acc.balance, acc.currency)}{default_mark}"
                 )
-            await update.message.reply_text("\n".join(lines))
+            await update.message.reply_text(
+                "\n".join(lines),
+                reply_markup=InlineKeyboardMarkup([MENU_BUTTON]),
+            )
     except Exception as e:
         logger.error(f"Error in accounts_command: {e}")
         await update.message.reply_text("Произошла ошибка.")
@@ -145,13 +181,23 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not user:
             await update.message.reply_text("Сначала используй /start")
             return
-        
+
+        # Check subscription
+        from bot.middleware import check_subscription
+        allowed, paywall_text, paywall_keyboard = await check_subscription(db, user)
+        if not allowed:
+            await update.message.reply_text(paywall_text, reply_markup=paywall_keyboard, parse_mode="Markdown")
+            return
+
         report = get_report(db, user.id, period_preset="month", user_timezone=user.timezone)
         text = format_report_text(report, user.timezone)
-        keyboard = [[InlineKeyboardButton(
-            "🤖 Анализ от GPT",
-            callback_data=f"fin:report_analysis:{user.tg_user_id}:month"
-        )]]
+        keyboard = [
+            [InlineKeyboardButton(
+                "🤖 Анализ от GPT",
+                callback_data=f"fin:report_analysis:{user.tg_user_id}:month"
+            )],
+            MENU_BUTTON,
+        ]
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     except Exception as e:
         logger.error(f"Error in report_command: {e}")
@@ -295,25 +341,66 @@ _Бот объяснит, что дало основной вклад (кате�
 
 ⸻
 
+*💎 Подписка*
+
+Все возможности бота доступны по подписке Premium.
+• 🎁 Пробный период: 14 дней бесплатно (один раз)
+• 📅 Месяц: 190₽
+• 📆 Год: 1900₽ (выгода ~17%)
+
+Управление: ⚙️ Настройки → 💎 Подписка
+
+⸻
+
+*📋 Бюджеты*
+• бюджет на кофе 3000
+• лимит на еду 15000₽ в месяц
+
+_Бот предупредит при 80% и 100% расхода бюджета._
+
+⸻
+
+*🔥 Стрики и достижения*
+
+Записывай расходы каждый день — бот считает стрик!
+Открывай ачивки: первая операция, 7 дней подряд, 100 операций и другие.
+
+⸻
+
 ✅ _Категории определяются автоматически. Все операции требуют подтверждения кнопкой._"""
-    await update.message.reply_text(help_text, parse_mode="Markdown")
+    await update.message.reply_text(
+        help_text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([MENU_BUTTON]),
+    )
 
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle text messages."""
     if not update.message or not update.message.text:
         return
-    
+
+    # Check persistent menu buttons first
+    from bot.menu import handle_persistent_menu
+    if await handle_persistent_menu(update, context):
+        return
+
+    # Check if user is in custom account creation flow (name or balance step)
+    if context.user_data.get("custom_account_currency") or context.user_data.get("custom_account_name"):
+        from bot.account_setup import handle_custom_account_name
+        await handle_custom_account_name(update, context)
+        return
+
     db = get_db()
     try:
         user = get_or_create_user(db, update.effective_user.id)
-        
+
         pending = db.query(PendingAction).filter(
             PendingAction.user_id == user.id,
             PendingAction.status == PendingStatus.PENDING,
             PendingAction.expires_at > datetime.utcnow()
         ).first()
-        
+
         if pending:
             text_lower = update.message.text.lower()
             if text_lower in ["ок", "да", "подтвердить", "yes", "ok", "подтверждаю"]:
@@ -327,18 +414,30 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.close()
         except:
             pass
-    
+
     await process_user_text(update, context, update.message.text)
 
 
 async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle voice messages - transcribe and process as text."""
     from services.speech import transcribe_telegram_voice
-    
+    from bot.middleware import check_subscription
+
     voice = update.message.voice
     if not voice:
         return
-    
+
+    # Check subscription
+    db = get_db()
+    try:
+        user = get_or_create_user(db, update.effective_user.id)
+        allowed, paywall_text, paywall_keyboard = await check_subscription(db, user)
+        if not allowed:
+            await update.message.reply_text(paywall_text, reply_markup=paywall_keyboard, parse_mode="Markdown")
+            return
+    finally:
+        db.close()
+
     processing_msg = await update.message.reply_text("🎤 Распознаю голосовое сообщение...")
     
     try:
@@ -366,11 +465,19 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     """Process user text message (shared between text and voice handlers)."""
     db = get_db()
     message_sent = False
-    
+
     try:
         user_id = update.effective_user.id
-        
+
         user = get_or_create_user(db, user_id)
+
+        # Check subscription before processing
+        from bot.middleware import check_subscription
+        allowed, paywall_text, paywall_keyboard = await check_subscription(db, user)
+        if not allowed:
+            await update.message.reply_text(paywall_text, reply_markup=paywall_keyboard, parse_mode="Markdown")
+            message_sent = True
+            return
         
         # Check if user has pending clarification
         pending_clarification = db.query(PendingAction).filter(
@@ -445,12 +552,18 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         logger.info(f"Parsed intent: {llm_response.intent}, confidence: {llm_response.confidence}")
         
         if llm_response.confidence < 0.5:
-            await update.message.reply_text("Не понял. Попробуй написать по-другому или используй /help для примеров.")
+            await update.message.reply_text(
+                "Не понял. Попробуй написать по-другому или используй /help для примеров.",
+                reply_markup=InlineKeyboardMarkup([MENU_BUTTON]),
+            )
             message_sent = True
             return
         
         if llm_response.intent == "unknown":
-            await update.message.reply_text("Не понял. Попробуй написать по-другому или используй /help для примеров.")
+            await update.message.reply_text(
+                "Не понял. Попробуй написать по-другому или используй /help для примеров.",
+                reply_markup=InlineKeyboardMarkup([MENU_BUTTON]),
+            )
             message_sent = True
             return
         
@@ -509,7 +622,12 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             await handle_delete_transaction_intent(db, update, user, llm_response)
             message_sent = True
             return
-        
+
+        if llm_response.intent == "set_budget":
+            await _handle_set_budget(db, update, user, llm_response)
+            message_sent = True
+            return
+
         await handle_mutation_intent(db, update, user, llm_response)
         message_sent = True
         
@@ -517,7 +635,10 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         logger.error(f"Error in process_user_text: {e}", exc_info=True)
         if not message_sent:
             try:
-                await update.message.reply_text("Произошла ошибка. Попробуй позже.")
+                await update.message.reply_text(
+                    "Произошла ошибка. Попробуй позже.",
+                    reply_markup=InlineKeyboardMarkup([MENU_BUTTON]),
+                )
             except:
                 pass
     finally:
@@ -527,25 +648,132 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             pass
 
 
-async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle inline button callbacks."""
-    query = update.callback_query
-    
-    if not query or not query.data or not query.data.startswith("fin:"):
+async def _handle_set_budget(db: Session, update: Update, user: User, llm_response):
+    """Handle set_budget intent — create or update a budget for a category."""
+    from db.models import Budget
+
+    category = llm_response.data.budget_category
+    limit_val = llm_response.data.budget_limit
+
+    if not category or not limit_val or limit_val <= 0:
+        await update.message.reply_text(
+            "Не понял бюджет. Напиши, например:\n"
+            "«бюджет на кофе 3000» или «лимит на еду 15000₽»"
+        )
         return
-    
-    parts = query.data.split(":")
+
+    limit_decimal = Decimal(str(limit_val))
+
+    # Upsert: update existing or create new
+    existing = (
+        db.query(Budget)
+        .filter(Budget.user_id == user.id, Budget.category == category)
+        .first()
+    )
+
+    if existing:
+        old_limit = existing.monthly_limit
+        existing.monthly_limit = limit_decimal
+        db.commit()
+        await update.message.reply_text(
+            f"📝 Бюджет «{category}» обновлён:\n"
+            f"  Было: {format_amount(old_limit, 'RUB')}/мес\n"
+            f"  Стало: {format_amount(limit_decimal, 'RUB')}/мес\n\n"
+            f"Буду предупреждать при 80% и 100% расхода.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("↩️ Главное меню", callback_data="menu:main")],
+            ]),
+        )
+    else:
+        budget = Budget(
+            user_id=user.id,
+            category=category,
+            monthly_limit=limit_decimal,
+            currency="RUB",
+        )
+        db.add(budget)
+        db.commit()
+        await update.message.reply_text(
+            f"✅ Бюджет установлен:\n"
+            f"  📂 {category}: {format_amount(limit_decimal, 'RUB')}/мес\n\n"
+            f"Буду предупреждать при 80% и 100% расхода.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("↩️ Главное меню", callback_data="menu:main")],
+            ]),
+        )
+
+
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle all inline button callbacks — routes by prefix."""
+    query = update.callback_query
+
+    if not query or not query.data:
+        return
+
+    data = query.data
+
+    # Route by prefix
+    if data.startswith("menu:") or data.startswith("cmd:") or data.startswith("report:") or data.startswith("settings:"):
+        from bot.menu import menu_callback_handler
+        await menu_callback_handler(update, context)
+        return
+
+    if data.startswith("acct:"):
+        from bot.account_setup import account_setup_callback, account_action_callback, _handle_balance_skip
+        if data in ("acct:more", "acct:back_to_start"):
+            await account_action_callback(update, context)
+        elif data.startswith("acct:balance:"):
+            await _handle_balance_skip(update, context)
+        else:
+            await account_setup_callback(update, context)
+        return
+
+    if data.startswith("sub:"):
+        from bot.subscription import subscription_callback_handler
+        await subscription_callback_handler(update, context)
+        return
+
+    if not data.startswith("fin:"):
+        return
+
+    parts = data.split(":")
     if len(parts) < 3:
         return
-    
+
     action = parts[1]
     db = get_db()
-    
+
     try:
+        # Check subscription for confirm/undo/report_analysis (require active sub)
+        if action in ("confirm", "undo", "report_analysis"):
+            from bot.middleware import check_subscription as _check_sub
+            user = db.query(User).filter(User.tg_user_id == query.from_user.id).first()
+            if user:
+                allowed, paywall_text, paywall_keyboard = await _check_sub(db, user)
+                if not allowed:
+                    await query.edit_message_text(paywall_text, reply_markup=paywall_keyboard, parse_mode="Markdown")
+                    return
+
         if action == "confirm":
             pending_id = int(parts[2])
             await handle_confirm(db, query, pending_id)
-        
+
+            # Update streak and check budget alerts after successful confirmation
+            try:
+                from services.retention import update_streak, format_achievement_notification, check_budget_alerts
+                user = db.query(User).filter(User.tg_user_id == query.from_user.id).first()
+                if user:
+                    result = update_streak(db, user)
+                    if result["new_achievements"]:
+                        notif = format_achievement_notification(result["new_achievements"])
+                        await query.message.reply_text(notif, parse_mode="Markdown")
+                    # Check budget alerts
+                    alerts = check_budget_alerts(db, user)
+                    for alert in alerts:
+                        await query.message.reply_text(alert, parse_mode="Markdown")
+            except Exception as e:
+                logger.warning(f"Streak/budget update failed: {e}")
+
         elif action == "cancel":
             pending_id = int(parts[2])
             await handle_cancel(db, query, pending_id)
@@ -558,7 +786,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if len(parts) >= 4:
                 await handle_report_analysis_callback(db, query, parts[2], parts[3])
 
-        
     except Exception as e:
         logger.error(f"Error in callback_handler: {e}", exc_info=True)
         await query.edit_message_text("Произошла ошибка.")

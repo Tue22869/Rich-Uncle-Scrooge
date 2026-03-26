@@ -45,6 +45,10 @@ def parse_period(
             end = now.replace(year=now.year + 1, month=1, day=1) - timedelta(microseconds=1)
         else:
             end = now.replace(month=now.month + 1, day=1) - timedelta(microseconds=1)
+    elif period_preset == "last_month":
+        first_of_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = first_of_this_month - timedelta(microseconds=1)
+        start = end.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     elif period_preset == "year":
         start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
         end = now.replace(year=now.year + 1, month=1, day=1) - timedelta(microseconds=1)
