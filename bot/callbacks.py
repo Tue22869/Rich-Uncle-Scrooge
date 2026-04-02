@@ -56,7 +56,7 @@ async def handle_confirm(db: Session, query, pending_id: int):
 
         # --- Sheets import ---
         if intent == "sheets_import" or pending.action_type == ActionType.SHEETS_IMPORT:
-            from services.ledger import clear_user_data, create_account, create_transaction_raw
+            from services.ledger import clear_user_data, create_transaction_raw
 
             try:
                 imported_data = payload.get("imported_data", {})
