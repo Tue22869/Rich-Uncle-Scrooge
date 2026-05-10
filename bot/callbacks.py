@@ -13,7 +13,7 @@ from db.models import User, Account, PendingAction, ActionType, PendingStatus
 _MENU_KB = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Главное меню", callback_data="menu:main")]])
 from services.ledger import (
     find_account_by_name, add_income, add_expense,
-    transfer, create_account, delete_account, rename_account,
+    transfer, delete_account, rename_account,
     set_default_account, update_transaction, delete_transaction_by_id
 )
 from services.reports import get_report

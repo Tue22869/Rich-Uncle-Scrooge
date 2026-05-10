@@ -362,7 +362,6 @@ async def _handle_balance_skip(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def _finalize_custom_account(update: Update, name: str, currency: str, balance):
     """Create the custom account and show result (from message context)."""
-    from decimal import Decimal
     tg_user_id = update.effective_user.id
     db = SessionLocal()
     try:
@@ -381,9 +380,10 @@ async def _finalize_custom_account(update: Update, name: str, currency: str, bal
         buttons.append([InlineKeyboardButton("🏠 Главное меню", callback_data="menu:main")])
 
         bal_text = f" с балансом {format_amount(balance, currency)}" if balance > 0 else ""
+        default_text = "⭐ Это ваш основной счёт.\n" if account.is_default else ""
         await update.message.reply_text(
             f"✅ Счёт «{name}» ({currency}) создан{bal_text}!\n\n"
-            f"{'⭐ Это ваш основной счёт.\n' if account.is_default else ''}"
+            f"{default_text}"
             f"💰 Ваши счета:\n{accounts_text}\n\n"
             "Теперь просто пишите о расходах и доходах!",
             reply_markup=InlineKeyboardMarkup(buttons),
@@ -400,7 +400,6 @@ async def _finalize_custom_account(update: Update, name: str, currency: str, bal
 
 async def _finalize_custom_account_from_callback(query, name: str, currency: str, balance):
     """Create the custom account and show result (from callback context)."""
-    from decimal import Decimal
     tg_user_id = query.from_user.id
     db = SessionLocal()
     try:
@@ -418,9 +417,10 @@ async def _finalize_custom_account_from_callback(query, name: str, currency: str
             buttons.append([InlineKeyboardButton("➕ Добавить ещё счёт", callback_data="acct:more")])
         buttons.append([InlineKeyboardButton("🏠 Главное меню", callback_data="menu:main")])
 
+        default_text = "⭐ Это ваш основной счёт.\n" if account.is_default else ""
         await query.edit_message_text(
             f"✅ Счёт «{name}» ({currency}) создан!\n\n"
-            f"{'⭐ Это ваш основной счёт.\n' if account.is_default else ''}"
+            f"{default_text}"
             f"💰 Ваши счета:\n{accounts_text}\n\n"
             "Теперь просто пишите о расходах и доходах!",
             reply_markup=InlineKeyboardMarkup(buttons),

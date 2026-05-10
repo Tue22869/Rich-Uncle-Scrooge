@@ -5,7 +5,7 @@ from enum import Enum as PyEnum
 
 from sqlalchemy import (
     Column, Integer, String, DateTime, ForeignKey, 
-    DECIMAL, Boolean, Text, Enum as SQLEnum, JSON
+    DECIMAL, Boolean, Enum as SQLEnum, JSON
 )
 from sqlalchemy.orm import relationship, declarative_base
 
@@ -160,6 +160,13 @@ class SubscriptionStatus(PyEnum):
     CANCELLED = "cancelled"
 
 
+class SubscriptionProvider:
+    """Payment provider constants (not an Enum — kept as plain strings for forward-compat)."""
+    TRIAL = "trial"
+    YOOKASSA = "yookassa"
+    STARS = "stars"
+
+
 class Subscription(Base):
     """Subscription model for tracking user payments and trial."""
     __tablename__ = "subscriptions"
@@ -168,7 +175,10 @@ class Subscription(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     plan = Column(SQLEnum(SubscriptionPlan), nullable=False)
     status = Column(SQLEnum(SubscriptionStatus), default=SubscriptionStatus.ACTIVE, nullable=False)
-    payment_id = Column(String, nullable=True)  # YooKassa payment ID
+    # provider: "trial" | "yookassa" | "stars" (see SubscriptionProvider)
+    provider = Column(String, default=SubscriptionProvider.YOOKASSA, nullable=False, index=True)
+    # For yookassa: YooKassa payment.id; for stars: telegram_payment_charge_id.
+    payment_id = Column(String, nullable=True, index=True)
     paid_at = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

@@ -33,7 +33,7 @@ async def handle_batch_intent(
     default_account: str
 ):
     """Handle batch of multiple operations."""
-    from schemas.llm_schema import LLMResponse, LLMResponseData
+    from schemas.llm_schema import LLMResponse
 
     operations = llm_response.operations or []
 
@@ -557,7 +557,7 @@ async def handle_mutation_intent(
 
     if errors:
         await update.message.reply_text(
-            f"Не хватает данных:\n" + "\n".join(f"• {e}" for e in errors) +
+            "Не хватает данных:\n" + "\n".join(f"• {e}" for e in errors) +
             "\n\nПопробуй указать все данные в сообщении."
         )
         return

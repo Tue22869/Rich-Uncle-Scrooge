@@ -1,11 +1,10 @@
 """Insights service for analytical questions."""
 import logging
 from decimal import Decimal
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
-from collections import defaultdict
+from datetime import timedelta
+from typing import Dict, Optional
 
-from sqlalchemy import func, and_, desc
+from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
 
 from db.models import User, Account, Transaction, TransactionType
@@ -165,13 +164,7 @@ def get_insight(
 def format_insight_text(insight: Dict, user_timezone: str = "Europe/London") -> str:
     """Format insight as text message."""
     lines = []
-    
-    metric_name = {
-        "expense": "расходы",
-        "income": "доходы",
-        "net": "сальдо"
-    }.get(insight["metric"], "расходы")
-    
+
     category_str = f" на {insight['category']}" if insight.get("category") else ""
     currency = insight.get("currency") or "RUB"
     

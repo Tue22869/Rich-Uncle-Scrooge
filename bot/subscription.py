@@ -1,17 +1,23 @@
 """Subscription handlers: premium menu, trial activation, payment callbacks."""
+import os
 import logging
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
 from telegram.ext import ContextTypes
 
-from db.models import User, SubscriptionPlan
+from db.models import SubscriptionPlan
 from db.session import SessionLocal
 from services.ledger import get_or_create_user
 from services.billing import (
     activate_trial, create_payment, check_payment_status,
-    confirm_payment, get_subscription_info, PLANS,
+    confirm_payment, get_subscription_info, PLANS, PLANS_STARS,
+    create_stars_invoice_payload,
 )
-from bot.middleware import _has_premium_access
+
+
+def _yookassa_enabled() -> bool:
+    """Show YooKassa buttons only when a real shop is configured."""
+    return bool(os.getenv("YOOKASSA_SHOP_ID") and os.getenv("YOOKASSA_SECRET_KEY"))
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +29,10 @@ async def _show_premium_menu(update: Update, edit_message: bool = False):
     try:
         user = get_or_create_user(db, tg_user_id)
         info = get_subscription_info(db, user)
+
+        yookassa_on = _yookassa_enabled()
+        stars_monthly = PLANS_STARS[SubscriptionPlan.MONTHLY]["stars"]
+        stars_yearly = PLANS_STARS[SubscriptionPlan.YEARLY]["stars"]
 
         if info["active"]:
             plan_labels = {"trial": "Пробный период", "monthly": "Месяц", "yearly": "Год"}
@@ -41,13 +51,22 @@ async def _show_premium_menu(update: Update, edit_message: bool = False):
             buttons = []
             if info["plan"] == "trial":
                 buttons.append([
-                    InlineKeyboardButton("📅 Месяц — 190₽", callback_data="sub:buy:monthly"),
-                    InlineKeyboardButton("📆 Год — 1900₽", callback_data="sub:buy:yearly"),
+                    InlineKeyboardButton(f"⭐ Месяц — {stars_monthly} Stars", callback_data="sub:buy_stars:monthly"),
+                    InlineKeyboardButton(f"⭐ Год — {stars_yearly} Stars", callback_data="sub:buy_stars:yearly"),
                 ])
+                if yookassa_on:
+                    buttons.append([
+                        InlineKeyboardButton("💳 Месяц — 190₽", callback_data="sub:buy:monthly"),
+                        InlineKeyboardButton("💳 Год — 1900₽", callback_data="sub:buy:yearly"),
+                    ])
             else:
                 buttons.append([
-                    InlineKeyboardButton("🔄 Продлить", callback_data="sub:buy:" + info["plan"]),
+                    InlineKeyboardButton("⭐ Продлить за Stars", callback_data="sub:buy_stars:" + info["plan"]),
                 ])
+                if yookassa_on:
+                    buttons.append([
+                        InlineKeyboardButton("💳 Продлить картой", callback_data="sub:buy:" + info["plan"]),
+                    ])
             buttons.append([InlineKeyboardButton("↩️ Главное меню", callback_data="menu:main")])
         else:
             text = (
@@ -63,9 +82,11 @@ async def _show_premium_menu(update: Update, edit_message: bool = False):
                 "• Стрики и ачивки\n"
                 "• Голосовой ввод\n\n"
                 "🔹 *Тарифы:*\n"
-                "📅 Месяц — 190₽\n"
-                "📆 Год — 1900₽ (выгода ~17%)\n"
+                f"⭐ Месяц — {stars_monthly} Stars\n"
+                f"⭐ Год — {stars_yearly} Stars (выгода ~17%)\n"
             )
+            if yookassa_on:
+                text += "\nИли картой:\n📅 Месяц — 190₽\n📆 Год — 1900₽\n"
 
             buttons = []
             if info.get("trial_available"):
@@ -74,13 +95,16 @@ async def _show_premium_menu(update: Update, edit_message: bool = False):
                     InlineKeyboardButton("🎁 Пробный период (14 дней)", callback_data="sub:activate_trial"),
                 ])
 
-            buttons.extend([
-                [
-                    InlineKeyboardButton("📅 Месяц — 190₽", callback_data="sub:buy:monthly"),
-                    InlineKeyboardButton("📆 Год — 1900₽", callback_data="sub:buy:yearly"),
-                ],
-                [InlineKeyboardButton("↩️ Главное меню", callback_data="menu:main")],
+            buttons.append([
+                InlineKeyboardButton(f"⭐ Месяц — {stars_monthly}", callback_data="sub:buy_stars:monthly"),
+                InlineKeyboardButton(f"⭐ Год — {stars_yearly}", callback_data="sub:buy_stars:yearly"),
             ])
+            if yookassa_on:
+                buttons.append([
+                    InlineKeyboardButton("💳 Месяц — 190₽", callback_data="sub:buy:monthly"),
+                    InlineKeyboardButton("💳 Год — 1900₽", callback_data="sub:buy:yearly"),
+                ])
+            buttons.append([InlineKeyboardButton("↩️ Главное меню", callback_data="menu:main")])
 
         keyboard = InlineKeyboardMarkup(buttons)
 
@@ -106,6 +130,9 @@ async def subscription_callback_handler(update: Update, context: ContextTypes.DE
 
     if data == "sub:activate_trial":
         await _handle_activate_trial(update, context)
+    elif data.startswith("sub:buy_stars:"):
+        plan_str = data.replace("sub:buy_stars:", "")
+        await _handle_buy_stars(update, context, plan_str)
     elif data.startswith("sub:buy:"):
         plan_str = data.replace("sub:buy:", "")
         await _handle_buy(update, context, plan_str)
@@ -204,6 +231,58 @@ async def _handle_buy(update: Update, context: ContextTypes.DEFAULT_TYPE, plan_s
         await query.edit_message_text("❌ Ошибка при создании платежа.")
     finally:
         db.close()
+
+
+async def _handle_buy_stars(update: Update, context: ContextTypes.DEFAULT_TYPE, plan_str: str):
+    """Send a Telegram Stars invoice for the selected plan."""
+    query = update.callback_query
+    tg_user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+
+    plan_map = {"monthly": SubscriptionPlan.MONTHLY, "yearly": SubscriptionPlan.YEARLY}
+    plan = plan_map.get(plan_str)
+    if not plan:
+        await query.edit_message_text("❌ Неизвестный тариф.")
+        return
+
+    plan_info = PLANS_STARS[plan]
+
+    db = SessionLocal()
+    try:
+        user = get_or_create_user(db, tg_user_id)
+        payload = create_stars_invoice_payload(user.id, plan)
+    finally:
+        db.close()
+
+    try:
+        await context.bot.send_invoice(
+            chat_id=chat_id,
+            title=f"Premium «Дядя Скрудж» — {plan_info['label']}",
+            description=(
+                "Полный доступ ко всем возможностям: запись доходов/расходов, "
+                "отчёты, AI-аналитика, бюджеты, голосовой ввод, Google Sheets."
+            ),
+            payload=payload,
+            provider_token="",  # empty for Telegram Stars (XTR)
+            currency="XTR",
+            prices=[LabeledPrice(label=plan_info["label"], amount=plan_info["stars"])],
+        )
+        # Acknowledge in the original message — the invoice arrives as a separate message.
+        await query.edit_message_text(
+            f"⭐ Счёт на оплату отправлен — {plan_info['stars']} Stars за «{plan_info['label']}».\n"
+            f"Оплатите его в Telegram, подписка активируется автоматически.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("↩️ Главное меню", callback_data="menu:main")],
+            ]),
+        )
+    except Exception as e:
+        logger.error(f"Stars invoice send error: {e}", exc_info=True)
+        await query.edit_message_text(
+            "❌ Не удалось создать счёт. Попробуйте позже.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("↩️ Главное меню", callback_data="menu:main")],
+            ]),
+        )
 
 
 async def _handle_check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE, payment_id: str):

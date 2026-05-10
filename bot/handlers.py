@@ -5,7 +5,6 @@ import logging
 from decimal import Decimal
 from datetime import datetime, timedelta
 
-from typing import Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
 from telegram.error import NetworkError, TimedOut
@@ -13,7 +12,7 @@ from telegram.ext import ContextTypes
 from sqlalchemy.orm import Session
 
 from db.models import User, Account, PendingAction, ActionType, PendingStatus, Budget
-from services.ledger import get_or_create_user, find_account_by_name
+from services.ledger import get_or_create_user
 from services.reports import get_report, format_report_text
 from llm.parser import parse_message
 from utils.money import format_amount
@@ -650,7 +649,6 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 async def _handle_set_budget(db: Session, update: Update, user: User, llm_response):
     """Handle set_budget intent — create or update a budget for a category."""
-    from db.models import Budget
 
     category = llm_response.data.budget_category
     limit_val = llm_response.data.budget_limit
@@ -791,3 +789,63 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Произошла ошибка.")
     finally:
         db.close()
+
+
+async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Validate a Telegram Stars invoice payload before charging the user."""
+    from services.billing import parse_stars_invoice_payload
+
+    query = update.pre_checkout_query
+    parsed = parse_stars_invoice_payload(query.invoice_payload)
+    if parsed is None:
+        logger.error(f"Rejecting pre_checkout: bad payload {query.invoice_payload!r}")
+        await query.answer(ok=False, error_message="Внутренняя ошибка. Свяжитесь с поддержкой.")
+        return
+
+    await query.answer(ok=True)
+
+
+async def successful_payment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Activate subscription after a successful Telegram Stars payment."""
+    from services.billing import confirm_stars_payment
+
+    payment = update.message.successful_payment
+    if not payment:
+        return
+
+    if payment.currency != "XTR":
+        # We only sell via Stars right now; YooKassa flows go through the webhook.
+        logger.warning(f"Received non-Stars successful_payment currency={payment.currency}")
+        return
+
+    db = get_db()
+    try:
+        sub = confirm_stars_payment(
+            db,
+            telegram_payment_charge_id=payment.telegram_payment_charge_id,
+            invoice_payload=payment.invoice_payload,
+            total_amount=payment.total_amount,
+        )
+    finally:
+        db.close()
+
+    if not sub:
+        await update.message.reply_text(
+            "⚠️ Платёж прошёл, но активация подписки не удалась. "
+            "Напишите в поддержку — мы восстановим вручную.",
+        )
+        return
+
+    expires = sub.expires_at.strftime("%d.%m.%Y")
+    plan_labels = {"monthly": "Месяц", "yearly": "Год"}
+    plan_label = plan_labels.get(sub.plan.value, sub.plan.value)
+    await update.message.reply_text(
+        f"🎉 *Подписка оформлена!*\n\n"
+        f"📋 Тариф: {plan_label}\n"
+        f"📅 Действует до: {expires}\n\n"
+        "✨ Все возможности бота теперь доступны!",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="menu:main")],
+        ]),
+        parse_mode="Markdown",
+    )

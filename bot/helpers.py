@@ -204,31 +204,31 @@ def build_preview_text(db: Session, user: User, intent: str, data) -> str:
 
     elif intent == "account_add":
         acc_new = data.account_new
-        lines.append(f"💳 Создать счёт:")
+        lines.append("💳 Создать счёт:")
         lines.append(f"  Название: {acc_new.name}")
         lines.append(f"  Валюта: {acc_new.currency}")
         if acc_new.initial_balance:
             lines.append(f"  Начальный баланс: {format_amount(Decimal(str(acc_new.initial_balance)), acc_new.currency)}")
 
     elif intent == "account_delete":
-        lines.append(f"🗑️ Удалить счёт:")
+        lines.append("🗑️ Удалить счёт:")
         lines.append(f"  {data.account_name}")
 
     elif intent == "account_rename":
-        lines.append(f"✏️ Переименовать счёт:")
+        lines.append("✏️ Переименовать счёт:")
         lines.append(f"  {data.account_old_name} → {data.account_new_name}")
 
     elif intent == "set_default_account":
-        lines.append(f"⭐ Назначить дефолтным счётом:")
+        lines.append("⭐ Назначить дефолтным счётом:")
         lines.append(f"  {data.account_name}")
 
     elif intent == "clear_all_data":
-        lines.append(f"⚠️ **УДАЛИТЬ ВСЕ ДАННЫЕ**")
-        lines.append(f"")
-        lines.append(f"Это действие **НЕОБРАТИМО** удалит:")
-        lines.append(f"  • Все счета")
-        lines.append(f"  • Все операции")
-        lines.append(f"  • Всю историю")
+        lines.append("⚠️ **УДАЛИТЬ ВСЕ ДАННЫЕ**")
+        lines.append("")
+        lines.append("Это действие **НЕОБРАТИМО** удалит:")
+        lines.append("  • Все счета")
+        lines.append("  • Все операции")
+        lines.append("  • Всю историю")
 
     lines.append("\nПодтверди действие кнопками ниже.")
 
@@ -266,7 +266,7 @@ def build_single_operation_preview(intent: str, data, user_timezone: str) -> str
         return f"🗑️ Удалить «{data.account_name}»"
 
     elif intent == "clear_all_data":
-        return f"⚠️ УДАЛИТЬ ВСЕ ДАННЫЕ (счета + операции)"
+        return "⚠️ УДАЛИТЬ ВСЕ ДАННЫЕ (счета + операции)"
 
     elif intent == "account_rename":
         return f"✏️ Переименовать «{data.account_old_name}» → «{data.account_new_name}»"

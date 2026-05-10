@@ -1,177 +1,110 @@
-"""Speech-to-text service using SpeechFlow.io API."""
+"""Speech-to-text service using OpenAI Whisper API."""
 import os
 import logging
-import asyncio
-import aiohttp
+import tempfile
 from typing import Optional
+
+from openai import AsyncOpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
 
 logger = logging.getLogger(__name__)
 
-SPEECHFLOW_KEY_ID = os.getenv("SPEECHFLOW_KEY_ID", "")
-SPEECHFLOW_KEY_SECRET = os.getenv("SPEECHFLOW_KEY_SECRET", "")
+WHISPER_MODEL = "whisper-1"
+MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # OpenAI Whisper hard limit: 25 MB
 
-# API endpoints
-CREATE_URL = "https://api.speechflow.io/asr/file/v1/create"
-QUERY_URL = "https://api.speechflow.io/asr/file/v1/query"
+_client: Optional[AsyncOpenAI] = None
+
+
+def _get_client() -> AsyncOpenAI:
+    global _client
+    if _client is None:
+        _client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    return _client
 
 
 async def transcribe_audio(file_path: str, lang: str = "ru") -> Optional[str]:
     """
-    Transcribe audio file using SpeechFlow API.
-    
+    Transcribe an audio file using OpenAI Whisper.
+
     Args:
-        file_path: Path to the audio file (local or remote URL)
-        lang: Language code (ru, en, etc.)
-    
+        file_path: Path to a local audio file (ogg/mp3/m4a/wav/webm).
+        lang: ISO-639-1 language hint (e.g. "ru", "en").
+
     Returns:
-        Transcribed text or None if failed
+        Transcribed text, or None on any error.
     """
-    headers = {
-        "keyId": SPEECHFLOW_KEY_ID,
-        "keySecret": SPEECHFLOW_KEY_SECRET
-    }
-    
     try:
-        async with aiohttp.ClientSession() as session:
-            # Create transcription task
-            task_id = await _create_task(session, file_path, lang, headers)
-            if not task_id:
-                return None
-            
-            # Query for results
-            text = await _query_result(session, task_id, headers)
-            return text
-            
-    except Exception as e:
-        logger.error(f"Speech transcription error: {e}")
+        size = os.path.getsize(file_path)
+    except OSError as e:
+        logger.error(f"Cannot stat audio file {file_path}: {e}")
         return None
 
+    if size == 0:
+        logger.error(f"Audio file {file_path} is empty")
+        return None
 
-async def _create_task(
-    session: aiohttp.ClientSession, 
-    file_path: str, 
-    lang: str, 
-    headers: dict
-) -> Optional[str]:
-    """Create a transcription task."""
+    if size > MAX_FILE_SIZE_BYTES:
+        logger.error(f"Audio file {file_path} is {size} bytes, exceeds Whisper limit {MAX_FILE_SIZE_BYTES}")
+        return None
+
+    client = _get_client()
+
     try:
-        if file_path.startswith('http'):
-            # Remote file
-            data = {"lang": lang, "remotePath": file_path}
-            async with session.post(CREATE_URL, data=data, headers=headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    if result.get("code") == 10000:
-                        task_id = result.get("taskId")
-                        logger.info(f"Created transcription task: {task_id}")
-                        return task_id
-                    else:
-                        logger.error(f"Create task error: {result.get('msg')}")
-                else:
-                    logger.error(f"Create request failed: {response.status}")
-        else:
-            # Local file
-            url = f"{CREATE_URL}?lang={lang}"
-            with open(file_path, "rb") as f:
-                data = aiohttp.FormData()
-                data.add_field('file', f, filename='audio.ogg')
-                async with session.post(url, data=data, headers=headers) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        if result.get("code") == 10000:
-                            task_id = result.get("taskId")
-                            logger.info(f"Created transcription task: {task_id}")
-                            return task_id
-                        else:
-                            logger.error(f"Create task error: {result.get('msg')}")
-                    else:
-                        logger.error(f"Create request failed: {response.status}")
+        with open(file_path, "rb") as f:
+            transcript = await client.audio.transcriptions.create(
+                model=WHISPER_MODEL,
+                file=f,
+                language=lang,
+            )
+    except AuthenticationError as e:
+        logger.error(f"Whisper auth failed (check OPENAI_API_KEY): {e}")
+        return None
+    except RateLimitError as e:
+        logger.error(f"Whisper rate-limited: {e}")
+        return None
+    except BadRequestError as e:
+        logger.error(f"Whisper bad request (corrupt audio?): {e}")
+        return None
+    except APIError as e:
+        logger.error(f"Whisper API error: {e}")
+        return None
     except Exception as e:
-        logger.error(f"Error creating transcription task: {e}")
-    
-    return None
+        logger.error(f"Unexpected error during transcription: {e}", exc_info=True)
+        return None
 
+    text = (transcript.text or "").strip()
+    if not text:
+        logger.info("Whisper returned empty transcription")
+        return None
 
-async def _query_result(
-    session: aiohttp.ClientSession, 
-    task_id: str, 
-    headers: dict,
-    max_attempts: int = 30,
-    poll_interval: float = 2.0
-) -> Optional[str]:
-    """Query for transcription result."""
-    # Result type 4 = plain text
-    query_url = f"{QUERY_URL}?taskId={task_id}&resultType=4"
-    
-    for attempt in range(max_attempts):
-        try:
-            async with session.get(query_url, headers=headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    code = result.get("code")
-                    
-                    if code == 11000:
-                        # Success
-                        text = result.get("result", "")
-                        logger.info(f"Transcription complete: {text[:100]}...")
-                        return text
-                    elif code == 11001:
-                        # Still processing
-                        logger.debug(f"Transcription in progress, attempt {attempt + 1}/{max_attempts}")
-                        await asyncio.sleep(poll_interval)
-                        continue
-                    else:
-                        logger.error(f"Transcription error: {result.get('msg')}")
-                        return None
-                else:
-                    logger.error(f"Query request failed: {response.status}")
-                    return None
-        except Exception as e:
-            logger.error(f"Error querying transcription: {e}")
-            return None
-    
-    logger.error("Transcription timed out")
-    return None
+    logger.info(f"Transcribed {size} bytes -> {len(text)} chars (lang={lang})")
+    return text
 
 
 async def transcribe_telegram_voice(bot, file_id: str) -> Optional[str]:
     """
-    Download and transcribe a Telegram voice message.
-    
+    Download a Telegram voice message and transcribe it.
+
     Args:
-        bot: Telegram bot instance
-        file_id: Telegram file ID of the voice message
-    
+        bot: Telegram Bot instance (from python-telegram-bot).
+        file_id: Telegram file_id of the voice/audio message.
+
     Returns:
-        Transcribed text or None if failed
+        Transcribed text, or None on failure.
     """
-    import tempfile
-    import os
-    
+    temp_path: Optional[str] = None
     try:
-        # Get file from Telegram
-        file = await bot.get_file(file_id)
-        
-        # Download to temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as temp_file:
-            temp_path = temp_file.name
-            await file.download_to_drive(temp_path)
-        
-        logger.info(f"Downloaded voice message to {temp_path}")
-        
-        # Transcribe
-        text = await transcribe_audio(temp_path, lang="ru")
-        
-        # Clean up
-        try:
-            os.unlink(temp_path)
-        except:
-            pass
-        
-        return text
-        
+        tg_file = await bot.get_file(file_id)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as fp:
+            temp_path = fp.name
+        await tg_file.download_to_drive(temp_path)
+        logger.debug(f"Downloaded voice to {temp_path}")
+        return await transcribe_audio(temp_path, lang="ru")
     except Exception as e:
-        logger.error(f"Error transcribing Telegram voice: {e}")
+        logger.error(f"Error fetching Telegram voice {file_id}: {e}", exc_info=True)
         return None
-
-
+    finally:
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass

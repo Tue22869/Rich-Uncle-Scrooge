@@ -3,12 +3,16 @@ import os
 import logging
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
+    PreCheckoutQueryHandler, filters,
+)
 from telegram.request import HTTPXRequest
 
 from bot.handlers import (
     start_command, accounts_command, report_command, help_command,
-    message_handler, voice_message_handler, callback_handler
+    message_handler, voice_message_handler, callback_handler,
+    pre_checkout_handler, successful_payment_handler,
 )
 from bot.sheets import (
     sheets_command, sheets_export_command, sheets_import_command
@@ -21,14 +25,40 @@ load_dotenv()
 
 # Configure logging
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
 )
 logger = logging.getLogger(__name__)
 
 
+def _init_sentry() -> None:
+    """Initialize Sentry if SENTRY_DSN is configured. Silent no-op otherwise."""
+    dsn = os.getenv("SENTRY_DSN", "").strip()
+    if not dsn:
+        return
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.logging import LoggingIntegration
+    except ImportError:
+        logger.warning("SENTRY_DSN is set but sentry-sdk is not installed; skipping init.")
+        return
+
+    sentry_sdk.init(
+        dsn=dsn,
+        environment=os.getenv("ENV", "dev"),
+        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+        integrations=[
+            LoggingIntegration(level=logging.INFO, event_level=logging.ERROR),
+        ],
+    )
+    logger.info(f"Sentry initialized (env={os.getenv('ENV', 'dev')})")
+
+
 def main():
     """Main function to start the bot."""
+    # Initialize observability before anything else.
+    _init_sentry()
+
     # Initialize database
     logger.info("Initializing database...")
     init_db()
@@ -74,6 +104,10 @@ def main():
     # Message handlers
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     application.add_handler(MessageHandler(filters.VOICE, voice_message_handler))
+
+    # Telegram Stars payment handlers
+    application.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
+    application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
 
     # Setup scheduled jobs (weekly/monthly digests, reminders, subscription expiry)
     from services.scheduler import setup_scheduled_jobs

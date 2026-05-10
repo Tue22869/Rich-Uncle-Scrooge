@@ -47,10 +47,9 @@ def init_db():
 def _ensure_sqlite_schema() -> None:
     """Ensure new nullable columns exist on SQLite tables."""
     with engine.connect() as conn:
-        cols = conn.execute(text("PRAGMA table_info(users)")).fetchall()
-        existing = {row[1] for row in cols}  # row[1] is column name
+        users_existing = {row[1] for row in conn.execute(text("PRAGMA table_info(users)")).fetchall()}
 
-        migrations = {
+        users_migrations = {
             "google_sheets_spreadsheet_id": "ALTER TABLE users ADD COLUMN google_sheets_spreadsheet_id VARCHAR",
             "trial_used": "ALTER TABLE users ADD COLUMN trial_used BOOLEAN DEFAULT 0 NOT NULL",
             "trial_activated_at": "ALTER TABLE users ADD COLUMN trial_activated_at DATETIME",
@@ -60,8 +59,18 @@ def _ensure_sqlite_schema() -> None:
             "achievements_json": "ALTER TABLE users ADD COLUMN achievements_json JSON",
         }
 
-        for col_name, sql in migrations.items():
-            if col_name not in existing:
+        for col_name, sql in users_migrations.items():
+            if col_name not in users_existing:
                 conn.execute(text(sql))
                 conn.commit()
+
+        subs_existing = {row[1] for row in conn.execute(text("PRAGMA table_info(subscriptions)")).fetchall()}
+        if subs_existing:  # table may not exist yet on a fresh DB — create_all() handles that
+            subs_migrations = {
+                "provider": "ALTER TABLE subscriptions ADD COLUMN provider VARCHAR DEFAULT 'yookassa' NOT NULL",
+            }
+            for col_name, sql in subs_migrations.items():
+                if col_name not in subs_existing:
+                    conn.execute(text(sql))
+                    conn.commit()
 

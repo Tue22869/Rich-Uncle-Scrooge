@@ -1,6 +1,6 @@
 """Retention service: digests, streaks, achievements, budget alerts."""
 import logging
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Optional, List, Dict
 
@@ -284,7 +284,6 @@ def generate_monthly_digest(db: Session, user: User) -> Optional[str]:
 
         lm_data = lm_totals.get(currency, {})
         lm_expense = Decimal(str(lm_data.get("expense", 0)))
-        lm_income = Decimal(str(lm_data.get("income", 0)))
 
         lines.append(f"💰 {currency}:")
         lines.append(f"  Доходы: {format_amount(tm_income, currency)}")

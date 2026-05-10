@@ -1,4 +1,4 @@
-"""Billing service: YooKassa payments, trial activation, subscription management."""
+"""Billing service: YooKassa + Telegram Stars payments, trial activation, subscription management."""
 import os
 import logging
 import uuid
@@ -7,14 +7,21 @@ from typing import Optional, Dict
 
 from sqlalchemy.orm import Session
 
-from db.models import User, Subscription, SubscriptionPlan, SubscriptionStatus
+from db.models import User, Subscription, SubscriptionPlan, SubscriptionStatus, SubscriptionProvider
 
 logger = logging.getLogger(__name__)
 
-# Plan prices and durations
+# Plan prices and durations — YooKassa (RUB)
 PLANS = {
     SubscriptionPlan.MONTHLY: {"price": "190.00", "currency": "RUB", "days": 30, "label": "Месяц"},
     SubscriptionPlan.YEARLY: {"price": "1900.00", "currency": "RUB", "days": 365, "label": "Год"},
+}
+
+# Telegram Stars pricing (XTR, integer amounts). 1 Star ~ $0.013 (2026).
+# Approximate parity with RUB plans; adjust as Telegram changes rates.
+PLANS_STARS = {
+    SubscriptionPlan.MONTHLY: {"stars": 75, "days": 30, "label": "Месяц"},
+    SubscriptionPlan.YEARLY: {"stars": 750, "days": 365, "label": "Год"},
 }
 
 
@@ -44,6 +51,7 @@ def activate_trial(db: Session, user_id: int) -> Optional[Subscription]:
         user_id=user.id,
         plan=SubscriptionPlan.TRIAL,
         status=SubscriptionStatus.ACTIVE,
+        provider=SubscriptionProvider.TRIAL,
         paid_at=now,
         expires_at=now + timedelta(days=14),
     )
@@ -88,7 +96,7 @@ def create_payment(db: Session, user_id: int, plan: SubscriptionPlan, return_url
                 },
                 "confirmation": {
                     "type": "redirect",
-                    "return_url": return_url or f"https://t.me/uncle_scrooge_bot",
+                    "return_url": return_url or "https://t.me/uncle_scrooge_bot",
                 },
                 "capture": True,
                 "description": f"Подписка «Дядя Скрудж» — {plan_info['label']}",
@@ -185,6 +193,7 @@ def confirm_payment(db: Session, payment_id: str) -> Optional[Subscription]:
             user_id=user.id,
             plan=plan,
             status=SubscriptionStatus.ACTIVE,
+            provider=SubscriptionProvider.YOOKASSA,
             payment_id=payment_id,
             paid_at=now,
             expires_at=start_from + timedelta(days=plan_info["days"]),
@@ -204,7 +213,6 @@ def confirm_payment(db: Session, payment_id: str) -> Optional[Subscription]:
 
 def get_subscription_info(db: Session, user: User) -> Dict:
     """Get human-readable subscription info for display."""
-    from bot.middleware import _has_premium_access, _get_trial_days_left
 
     now = datetime.utcnow()
     active_sub = (
@@ -236,6 +244,133 @@ def get_subscription_info(db: Session, user: User) -> Dict:
         "trial_available": not user.trial_used,
     }
 
+
+# ---------------------------------------------------------------------------
+# Telegram Stars
+# ---------------------------------------------------------------------------
+
+# Telegram limits invoice payload to 128 bytes — keep it short.
+_STARS_PAYLOAD_PREFIX = "scrooge_stars"
+
+
+def create_stars_invoice_payload(user_id: int, plan: SubscriptionPlan) -> str:
+    """Build a compact, signed-by-format payload for a Stars invoice.
+
+    Format: scrooge_stars:<plan>:<user_id>:<nonce>
+    """
+    if plan not in PLANS_STARS:
+        raise ValueError(f"Stars plan {plan} not supported")
+    nonce = uuid.uuid4().hex[:12]
+    return f"{_STARS_PAYLOAD_PREFIX}:{plan.value}:{user_id}:{nonce}"
+
+
+def parse_stars_invoice_payload(payload: str) -> Optional[Dict]:
+    """Inverse of create_stars_invoice_payload. Returns dict or None if malformed."""
+    if not payload or not payload.startswith(f"{_STARS_PAYLOAD_PREFIX}:"):
+        return None
+    parts = payload.split(":")
+    if len(parts) != 4:
+        return None
+    _, plan_str, user_id_str, nonce = parts
+    try:
+        plan = SubscriptionPlan(plan_str)
+    except ValueError:
+        return None
+    if plan not in PLANS_STARS:
+        return None
+    try:
+        user_id = int(user_id_str)
+    except ValueError:
+        return None
+    return {"plan": plan, "user_id": user_id, "nonce": nonce}
+
+
+def confirm_stars_payment(
+    db: Session,
+    telegram_payment_charge_id: str,
+    invoice_payload: str,
+    total_amount: int,
+) -> Optional[Subscription]:
+    """Activate (or extend) a subscription after a successful Telegram Stars payment.
+
+    Idempotent: a repeat call with the same telegram_payment_charge_id returns the
+    existing subscription instead of creating a duplicate.
+    """
+    if not telegram_payment_charge_id:
+        logger.error("confirm_stars_payment called without telegram_payment_charge_id")
+        return None
+
+    parsed = parse_stars_invoice_payload(invoice_payload)
+    if not parsed:
+        logger.error(f"Malformed Stars payload: {invoice_payload!r}")
+        return None
+
+    plan = parsed["plan"]
+    user_id = parsed["user_id"]
+    plan_info = PLANS_STARS[plan]
+
+    if total_amount < plan_info["stars"]:
+        logger.error(
+            f"Stars payment total_amount={total_amount} below plan price {plan_info['stars']} for {plan.value}"
+        )
+        return None
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        logger.error(f"Stars payment for unknown user_id={user_id}")
+        return None
+
+    # Idempotency: identify by (provider, payment_id).
+    existing = (
+        db.query(Subscription)
+        .filter(
+            Subscription.provider == SubscriptionProvider.STARS,
+            Subscription.payment_id == telegram_payment_charge_id,
+        )
+        .first()
+    )
+    if existing:
+        logger.info(f"Stars payment {telegram_payment_charge_id} already processed (sub {existing.id})")
+        return existing
+
+    now = datetime.utcnow()
+
+    # Extend from current expiry if user already has active subscription
+    current_sub = (
+        db.query(Subscription)
+        .filter(
+            Subscription.user_id == user.id,
+            Subscription.status == SubscriptionStatus.ACTIVE,
+            Subscription.expires_at > now,
+        )
+        .order_by(Subscription.expires_at.desc())
+        .first()
+    )
+    start_from = current_sub.expires_at if current_sub else now
+
+    subscription = Subscription(
+        user_id=user.id,
+        plan=plan,
+        status=SubscriptionStatus.ACTIVE,
+        provider=SubscriptionProvider.STARS,
+        payment_id=telegram_payment_charge_id,
+        paid_at=now,
+        expires_at=start_from + timedelta(days=plan_info["days"]),
+    )
+    db.add(subscription)
+    db.commit()
+    db.refresh(subscription)
+
+    logger.info(
+        f"Stars subscription created: id={subscription.id}, user_id={user_id}, "
+        f"plan={plan.value}, charge_id={telegram_payment_charge_id}"
+    )
+    return subscription
+
+
+# ---------------------------------------------------------------------------
+# Maintenance
+# ---------------------------------------------------------------------------
 
 def expire_subscriptions(db: Session) -> int:
     """Mark expired subscriptions. Called periodically by scheduler."""

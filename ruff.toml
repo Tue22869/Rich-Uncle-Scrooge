@@ -1,0 +1,30 @@
+# https://docs.astral.sh/ruff/
+# Conservative config: catch real bugs and unused imports, leave style alone.
+target-version = "py310"
+line-length = 120
+
+extend-exclude = [
+    "venv",
+    ".venv",
+    "alembic/versions",
+    "tests/__pycache__",
+    "__pycache__",
+]
+
+[lint]
+select = [
+    "E9",   # pycodestyle: syntax errors only
+    "F",    # pyflakes: undefined names, unused imports, etc.
+    "B",    # bugbear: likely bugs
+    "I",    # isort: import ordering
+]
+ignore = [
+    "B008",  # function calls in default arguments (fine for many patterns)
+    "B904",  # raise-without-from-inside-except (not always a bug)
+    "B007",  # unused loop control variable
+    "I001",  # import block ordering (project does not enforce isort yet)
+]
+
+[lint.per-file-ignores]
+"tests/**" = ["B", "F401", "F811", "F841", "E712"]
+"alembic/**" = ["F401"]

@@ -1,6 +1,5 @@
 """Menu handlers — main menu, reports menu, settings, navigation."""
 import logging
-from datetime import datetime
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes

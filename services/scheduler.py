@@ -9,7 +9,6 @@ from db.models import User
 from bot.middleware import _has_premium_access
 from services.billing import expire_subscriptions
 from services.retention import (
-    generate_weekly_digest, generate_monthly_digest,
     generate_weekly_digest_llm, generate_monthly_digest_llm,
     get_users_needing_reminder, get_tip_of_the_day,
 )

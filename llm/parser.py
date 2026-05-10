@@ -3,7 +3,6 @@ import os
 import json
 import logging
 from typing import List, Dict, Optional, Tuple
-from datetime import datetime
 
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
