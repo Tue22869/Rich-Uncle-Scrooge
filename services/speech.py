@@ -5,13 +5,24 @@ import tempfile
 from typing import Optional
 
 from openai import AsyncOpenAI, APIError, AuthenticationError, RateLimitError, BadRequestError
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
 WHISPER_MODEL = "whisper-1"
 MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # OpenAI Whisper hard limit: 25 MB
+# Telegram OGG/Opus voice is roughly ~8 KB/sec. Used to approximate audio duration
+# for cost accounting without invoking ffprobe.
+_TELEGRAM_OGG_BYTES_PER_SECOND = 8 * 1024
 
 _client: Optional[AsyncOpenAI] = None
+
+
+def _approximate_audio_seconds(byte_size: int) -> int:
+    """Approximate Telegram voice (OGG/Opus) duration from file size. ±20% accuracy."""
+    if byte_size <= 0:
+        return 0
+    return max(1, byte_size // _TELEGRAM_OGG_BYTES_PER_SECOND)
 
 
 def _get_client() -> AsyncOpenAI:
@@ -21,13 +32,21 @@ def _get_client() -> AsyncOpenAI:
     return _client
 
 
-async def transcribe_audio(file_path: str, lang: str = "ru") -> Optional[str]:
+async def transcribe_audio(
+    file_path: str,
+    lang: str = "ru",
+    *,
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
+) -> Optional[str]:
     """
     Transcribe an audio file using OpenAI Whisper.
 
     Args:
         file_path: Path to a local audio file (ogg/mp3/m4a/wav/webm).
         lang: ISO-639-1 language hint (e.g. "ru", "en").
+        db, user_id: Optional analytics context. If both set, a `whisper` usage
+            event with approximate audio_seconds is recorded.
 
     Returns:
         Transcribed text, or None on any error.
@@ -76,17 +95,40 @@ async def transcribe_audio(file_path: str, lang: str = "ru") -> Optional[str]:
         logger.info("Whisper returned empty transcription")
         return None
 
+    # Best-effort cost accounting.
+    if db is not None and user_id is not None:
+        try:
+            from services.analytics import log_event
+            from db.models import UsageEventKind
+            log_event(
+                db,
+                user_id=user_id,
+                kind=UsageEventKind.WHISPER,
+                model=WHISPER_MODEL,
+                audio_seconds=_approximate_audio_seconds(size),
+                meta={"lang": lang, "chars": len(text)},
+            )
+        except Exception as e:
+            logger.warning(f"whisper usage logging failed: {e}")
+
     logger.info(f"Transcribed {size} bytes -> {len(text)} chars (lang={lang})")
     return text
 
 
-async def transcribe_telegram_voice(bot, file_id: str) -> Optional[str]:
+async def transcribe_telegram_voice(
+    bot,
+    file_id: str,
+    *,
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
+) -> Optional[str]:
     """
     Download a Telegram voice message and transcribe it.
 
     Args:
         bot: Telegram Bot instance (from python-telegram-bot).
         file_id: Telegram file_id of the voice/audio message.
+        db, user_id: Optional analytics context — forwarded to transcribe_audio.
 
     Returns:
         Transcribed text, or None on failure.
@@ -98,7 +140,7 @@ async def transcribe_telegram_voice(bot, file_id: str) -> Optional[str]:
             temp_path = fp.name
         await tg_file.download_to_drive(temp_path)
         logger.debug(f"Downloaded voice to {temp_path}")
-        return await transcribe_audio(temp_path, lang="ru")
+        return await transcribe_audio(temp_path, lang="ru", db=db, user_id=user_id)
     except Exception as e:
         logger.error(f"Error fetching Telegram voice {file_id}: {e}", exc_info=True)
         return None

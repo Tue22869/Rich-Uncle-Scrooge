@@ -496,7 +496,15 @@ async def handle_report_analysis_callback(db: Session, query, user_id_str: str, 
         )
 
         data_str = format_report_for_analysis(report)
-        analysis = await generate_analysis(data_str)
+        try:
+            from services.analytics import log_event
+            from db.models import UsageEventKind
+            log_event(db, user_id=user.id, kind=UsageEventKind.ANALYSIS_VIEW,
+                      meta={"source": "report"})
+        except Exception:
+            pass
+
+        analysis = await generate_analysis(data_str, db=db, user_id=user.id)
 
         if analysis:
             await query.edit_message_text(analysis, reply_markup=_MENU_KB)

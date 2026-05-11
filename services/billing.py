@@ -7,9 +7,40 @@ from typing import Optional, Dict
 
 from sqlalchemy.orm import Session
 
-from db.models import User, Subscription, SubscriptionPlan, SubscriptionStatus, SubscriptionProvider
+from db.models import (
+    User, Subscription, SubscriptionPlan, SubscriptionStatus, SubscriptionProvider,
+    UsageEventKind,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _log_billing_event(db: Session, user_id: int, kind: str, meta: dict) -> None:
+    """Best-effort billing usage event. Never raises."""
+    try:
+        from services.analytics import log_event
+        log_event(db, user_id=user_id, kind=kind, meta=meta)
+    except Exception as e:
+        logger.warning(f"billing analytics log failed: {e}")
+
+
+# Approximate net RUB the developer keeps after platform fees.
+# Stars: ~$0.013 net per Star at withdraw → 1 Star ≈ 1.17 RUB at 90 RUB/$.
+# YooKassa: ~3.5% commission.
+# Self-employed tax (6%) is applied later when computing actual income.
+_NET_RUB_PER_STAR = 1.17
+_YOOKASSA_NET_RATIO = 0.965
+
+
+def _estimate_net_rub_stars(stars: int) -> int:
+    return int(stars * _NET_RUB_PER_STAR)
+
+
+def _estimate_net_rub_yookassa(rub_str: str) -> int:
+    try:
+        return int(float(rub_str) * _YOOKASSA_NET_RATIO)
+    except (ValueError, TypeError):
+        return 0
 
 # Plan prices and durations — YooKassa (RUB)
 PLANS = {
@@ -61,6 +92,9 @@ def activate_trial(db: Session, user_id: int) -> Optional[Subscription]:
     user.trial_activated_at = now
     db.commit()
     db.refresh(subscription)
+
+    _log_billing_event(db, user.id, UsageEventKind.TRIAL_STARTED,
+                       {"days": 14, "expires_at": subscription.expires_at.isoformat()})
 
     logger.info(f"Trial activated for user {user_id}, expires {subscription.expires_at}")
     return subscription
@@ -201,6 +235,14 @@ def confirm_payment(db: Session, payment_id: str) -> Optional[Subscription]:
         db.add(subscription)
         db.commit()
         db.refresh(subscription)
+
+        _log_billing_event(db, user.id, UsageEventKind.SUBSCRIPTION_PAID, {
+            "provider": SubscriptionProvider.YOOKASSA,
+            "plan": plan.value,
+            "gross_rub": float(plan_info["price"]),
+            "net_rub": _estimate_net_rub_yookassa(plan_info["price"]),
+            "payment_id": payment_id,
+        })
 
         logger.info(f"Subscription confirmed: {subscription.id} for user {user_id}")
         return subscription
@@ -360,6 +402,14 @@ def confirm_stars_payment(
     db.add(subscription)
     db.commit()
     db.refresh(subscription)
+
+    _log_billing_event(db, user.id, UsageEventKind.SUBSCRIPTION_PAID, {
+        "provider": SubscriptionProvider.STARS,
+        "plan": plan.value,
+        "stars": total_amount,
+        "net_rub": _estimate_net_rub_stars(total_amount),
+        "telegram_payment_charge_id": telegram_payment_charge_id,
+    })
 
     logger.info(
         f"Stars subscription created: id={subscription.id}, user_id={user_id}, "

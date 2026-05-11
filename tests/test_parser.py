@@ -94,7 +94,7 @@ def mock_transfer_response():
 @patch('llm.parser._call_llm_json_mode', new_callable=AsyncMock)
 async def test_parse_expense(mock_llm, mock_expense_response):
     """Test parsing expense message."""
-    mock_llm.return_value = (mock_expense_response, None)
+    mock_llm.return_value = (mock_expense_response, None, {})
 
     result = await parse_message("кофе 320", [], None, "Europe/London")
 
@@ -107,7 +107,7 @@ async def test_parse_expense(mock_llm, mock_expense_response):
 @patch('llm.parser._call_llm_json_mode', new_callable=AsyncMock)
 async def test_parse_income(mock_llm, mock_income_response):
     """Test parsing income message."""
-    mock_llm.return_value = (mock_income_response, None)
+    mock_llm.return_value = (mock_income_response, None, {})
 
     result = await parse_message("+50000 зп", [], None, "Europe/London")
 
@@ -119,7 +119,7 @@ async def test_parse_income(mock_llm, mock_income_response):
 @patch('llm.parser._call_llm_json_mode', new_callable=AsyncMock)
 async def test_parse_transfer(mock_llm, mock_transfer_response):
     """Test parsing transfer message."""
-    mock_llm.return_value = (mock_transfer_response, None)
+    mock_llm.return_value = (mock_transfer_response, None, {})
 
     result = await parse_message("переведи 10к с карты на нал", [], None, "Europe/London")
 
@@ -137,7 +137,7 @@ async def test_parse_show_accounts(mock_llm):
         "confidence": 1.0,
         "data": {},
         "errors": []
-    }, None)
+    }, None, {})
 
     result = await parse_message("мои счета", [], None, "Europe/London")
 
@@ -159,7 +159,7 @@ async def test_parse_report(mock_llm):
             }
         },
         "errors": []
-    }, None)
+    }, None, {})
 
     result = await parse_message("отчет за ноябрь", [], None, "Europe/London")
 
@@ -177,7 +177,7 @@ async def test_parse_list_transactions(mock_llm):
             "period": {"preset": "month"}
         },
         "errors": []
-    }, None)
+    }, None, {})
 
     result = await parse_message("история операций", [], None, "Europe/London")
 
@@ -193,7 +193,7 @@ async def test_parse_delete_transaction(mock_llm):
         "confidence": 1.0,
         "data": {"transaction_id": 3},
         "errors": []
-    }, None)
+    }, None, {})
 
     result = await parse_message("удали запись 3", [], None, "Europe/London")
 
@@ -213,7 +213,7 @@ async def test_parse_insight(mock_llm):
             "category": "Кафе и кофе"
         },
         "errors": []
-    }, None)
+    }, None, {})
 
     result = await parse_message("почему так много на кофе", [], None, "Europe/London")
 
@@ -226,8 +226,8 @@ async def test_parse_fallback_on_error(mock_llm):
     """Test fallback to secondary model on error."""
     # First call fails, second succeeds
     mock_llm.side_effect = [
-        (None, "API error"),
-        ({"intent": "expense", "confidence": 0.9, "data": {"amount": 100}, "errors": []}, None)
+        (None, "API error", {}),
+        ({"intent": "expense", "confidence": 0.9, "data": {"amount": 100}, "errors": []}, None, {})
     ]
 
     result = await parse_message("такси 100", [], None, "Europe/London")
@@ -240,7 +240,7 @@ async def test_parse_fallback_on_error(mock_llm):
 @patch('llm.parser._call_llm_json_mode', new_callable=AsyncMock)
 async def test_parse_both_models_fail(mock_llm):
     """Test both models failing returns unknown."""
-    mock_llm.return_value = (None, "API error")
+    mock_llm.return_value = (None, "API error", {})
 
     result = await parse_message("непонятный запрос", [], None, "Europe/London")
 

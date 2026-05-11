@@ -74,3 +74,5 @@ def _ensure_sqlite_schema() -> None:
                     conn.execute(text(sql))
                     conn.commit()
 
+        # `usage_events` is fully covered by create_all() — no per-column patches yet.
+

@@ -18,6 +18,7 @@ from bot.sheets import (
     sheets_command, sheets_export_command, sheets_import_command
 )
 from bot.menu import menu_command
+from bot.admin import cmd_admin_stats
 from db.session import init_db
 
 # Load environment variables
@@ -97,6 +98,7 @@ def main():
     application.add_handler(CommandHandler("sheets_export", sheets_export_command))
     application.add_handler(CommandHandler("sheets_import", sheets_import_command))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("admin_stats", cmd_admin_stats))
 
     # Single callback handler that routes all callback prefixes
     application.add_handler(CallbackQueryHandler(callback_handler))

@@ -169,6 +169,15 @@ async def handle_report_intent(
     data = llm_response.data
     period = data.period
 
+    try:
+        from services.analytics import log_event, log_first_feature
+        from db.models import UsageEventKind
+        log_event(db, user_id=user.id, kind=UsageEventKind.REPORT_VIEW,
+                  meta={"preset": period.preset if period else None})
+        log_first_feature(db, user.id, "report")
+    except Exception:
+        pass
+
     report = get_report(
         db,
         user.id,
@@ -520,7 +529,19 @@ async def handle_insight_intent(
         )
 
     data_str = format_insight_for_analysis(insight)
-    analysis = await generate_analysis(data_str, user_question=original_text)
+    # Engagement event before the LLM call so we can count "wanted analysis"
+    # separately from "got analysis" (denominator for analysis success rate).
+    try:
+        from services.analytics import log_event
+        from db.models import UsageEventKind
+        log_event(db, user_id=user.id, kind=UsageEventKind.ANALYSIS_VIEW,
+                  meta={"source": "insight"})
+    except Exception:
+        pass
+
+    analysis = await generate_analysis(
+        data_str, user_question=original_text, db=db, user_id=user.id
+    )
     text = analysis if analysis else format_insight_text(insight, user.timezone)
 
     await update.message.reply_text(text)

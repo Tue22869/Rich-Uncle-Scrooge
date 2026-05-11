@@ -394,6 +394,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = get_or_create_user(db, update.effective_user.id)
 
+        # Lightweight engagement event — never blocks the flow.
+        try:
+            from services.analytics import log_event
+            from db.models import UsageEventKind
+            log_event(db, user_id=user.id, kind=UsageEventKind.MESSAGE_IN,
+                      meta={"is_voice": False})
+        except Exception:
+            pass
+
         pending = db.query(PendingAction).filter(
             PendingAction.user_id == user.id,
             PendingAction.status == PendingStatus.PENDING,
@@ -411,7 +420,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         try:
             db.close()
-        except:
+        except Exception:
             pass
 
     await process_user_text(update, context, update.message.text)
@@ -421,6 +430,8 @@ async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
     """Handle voice messages - transcribe and process as text."""
     from services.speech import transcribe_telegram_voice
     from bot.middleware import check_subscription
+    from services.analytics import log_event
+    from db.models import UsageEventKind
 
     voice = update.message.voice
     if not voice:
@@ -428,8 +439,12 @@ async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     # Check subscription
     db = get_db()
+    user_id = None
     try:
         user = get_or_create_user(db, update.effective_user.id)
+        user_id = user.id
+        log_event(db, user_id=user_id, kind=UsageEventKind.VOICE_IN,
+                  meta={"duration_telegram_s": getattr(voice, "duration", None)})
         allowed, paywall_text, paywall_keyboard = await check_subscription(db, user)
         if not allowed:
             await update.message.reply_text(paywall_text, reply_markup=paywall_keyboard, parse_mode="Markdown")
@@ -438,9 +453,15 @@ async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         db.close()
 
     processing_msg = await update.message.reply_text("🎤 Распознаю голосовое сообщение...")
-    
+
     try:
-        text = await transcribe_telegram_voice(context.bot, voice.file_id)
+        analytics_db = get_db()
+        try:
+            text = await transcribe_telegram_voice(
+                context.bot, voice.file_id, db=analytics_db, user_id=user_id
+            )
+        finally:
+            analytics_db.close()
         
         if not text or not text.strip():
             await processing_msg.edit_text("❌ Не удалось распознать речь. Попробуй ещё раз или напиши текстом.")
@@ -545,7 +566,9 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             text,
             accounts_for_llm,
             default_account_name,
-            user.timezone
+            user.timezone,
+            db=db,
+            user_id=user.id,
         )
         
         logger.info(f"Parsed intent: {llm_response.intent}, confidence: {llm_response.confidence}")
