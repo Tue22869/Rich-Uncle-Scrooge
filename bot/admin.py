@@ -1,6 +1,6 @@
 """Admin-only /admin_stats command.
 
-Access controlled by ADMIN_TG_IDS env var (comma-separated Telegram user IDs).
+Access controlled by ADMIN_USER_IDS env var (comma-separated Telegram user IDs).
 """
 import os
 import logging
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _admin_ids() -> Set[int]:
-    raw = os.getenv("ADMIN_TG_IDS", "").strip()
+    raw = os.getenv("ADMIN_USER_IDS", "").strip()
     if not raw:
         return set()
     out: Set[int] = set()
@@ -34,7 +34,7 @@ def _admin_ids() -> Set[int]:
         try:
             out.add(int(token))
         except ValueError:
-            logger.warning(f"ADMIN_TG_IDS: skipping non-int token {token!r}")
+            logger.warning(f"ADMIN_USER_IDS: skipping non-int token {token!r}")
     return out
 
 

@@ -73,27 +73,27 @@ def _make_event(db, user, kind, *, hours_ago=0, cost_micro=None, meta=None,
 # ---------- admin access ----------
 
 def test_admin_ids_empty_env(monkeypatch):
-    monkeypatch.setenv("ADMIN_TG_IDS", "")
+    monkeypatch.setenv("ADMIN_USER_IDS", "")
     assert _admin_ids() == set()
 
 
 def test_admin_ids_parses_comma_separated(monkeypatch):
-    monkeypatch.setenv("ADMIN_TG_IDS", "123, 456 ,789")
+    monkeypatch.setenv("ADMIN_USER_IDS", "123, 456 ,789")
     assert _admin_ids() == {123, 456, 789}
 
 
 def test_admin_ids_skips_invalid(monkeypatch):
-    monkeypatch.setenv("ADMIN_TG_IDS", "123,abc,456")
+    monkeypatch.setenv("ADMIN_USER_IDS", "123,abc,456")
     assert _admin_ids() == {123, 456}
 
 
 def test_admin_ids_handles_semicolons(monkeypatch):
-    monkeypatch.setenv("ADMIN_TG_IDS", "10;20;30")
+    monkeypatch.setenv("ADMIN_USER_IDS", "10;20;30")
     assert _admin_ids() == {10, 20, 30}
 
 
 def test_is_admin_true_when_in_list(monkeypatch):
-    monkeypatch.setenv("ADMIN_TG_IDS", "42")
+    monkeypatch.setenv("ADMIN_USER_IDS", "42")
     assert is_admin(42)
     assert not is_admin(43)
 
