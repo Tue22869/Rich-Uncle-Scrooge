@@ -181,6 +181,16 @@ async def handle_confirm(db: Session, query, pending_id: int):
                 else:
                     await query.answer(f"✅ Выполнено {success_count} операций.")
                     await query.edit_message_text(confirmed_text, reply_markup=_MENU_KB)
+
+                # Onboarding tip if any batch operation was income/expense/transfer
+                if any(op["intent"] in ("income", "expense", "transfer") for op in operations):
+                    try:
+                        from services.onboarding import advance_after_confirmed_op
+                        tip = advance_after_confirmed_op(db, user)
+                        if tip:
+                            await query.message.reply_text(tip, parse_mode="Markdown")
+                    except Exception as e:
+                        logger.warning(f"Onboarding tip failed: {e}")
             return
 
         # --- Regular single operation ---
@@ -375,6 +385,16 @@ async def handle_confirm(db: Session, query, pending_id: int):
         else:
             await query.answer("✅ Подтверждено и записано.")
             await query.edit_message_text(confirmed_text, reply_markup=_MENU_KB)
+
+        # Onboarding tip after first/second income/expense/transfer
+        if intent in ("income", "expense", "transfer"):
+            try:
+                from services.onboarding import advance_after_confirmed_op
+                tip = advance_after_confirmed_op(db, user)
+                if tip:
+                    await query.message.reply_text(tip, parse_mode="Markdown")
+            except Exception as e:
+                logger.warning(f"Onboarding tip failed: {e}")
 
     except Exception as e:
         db.rollback()

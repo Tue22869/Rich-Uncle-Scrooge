@@ -2,7 +2,7 @@
 import logging
 from decimal import Decimal
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from collections import defaultdict
 
 from sqlalchemy import func

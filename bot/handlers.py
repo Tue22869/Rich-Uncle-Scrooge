@@ -5,7 +5,6 @@ import logging
 from decimal import Decimal
 from datetime import datetime, timedelta
 
-from typing import Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
 from telegram.error import NetworkError, TimedOut
@@ -13,7 +12,7 @@ from telegram.ext import ContextTypes
 from sqlalchemy.orm import Session
 
 from db.models import User, Account, PendingAction, ActionType, PendingStatus, Budget
-from services.ledger import get_or_create_user, find_account_by_name
+from services.ledger import get_or_create_user
 from services.reports import get_report, format_report_text
 from llm.parser import parse_message
 from utils.money import format_amount
@@ -133,7 +132,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def accounts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /accounts command."""
+    """Handle /accounts command — opens the unified accounts screen."""
+    from bot.menu import _show_accounts_screen
+
     db = get_db()
     try:
         user = db.query(User).filter(User.tg_user_id == update.effective_user.id).first()
@@ -141,31 +142,13 @@ async def accounts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Сначала используй /start")
             return
 
-        # Check subscription
         from bot.middleware import check_subscription
         allowed, paywall_text, paywall_keyboard = await check_subscription(db, user)
         if not allowed:
             await update.message.reply_text(paywall_text, reply_markup=paywall_keyboard, parse_mode="Markdown")
             return
 
-        accounts = db.query(Account).filter(Account.user_id == user.id).all()
-        
-        if not accounts:
-            await update.message.reply_text(
-                "💰 Пока пусто. Создай первый счёт!",
-                reply_markup=InlineKeyboardMarkup([MENU_BUTTON]),
-            )
-        else:
-            lines = ["💰 Твои счета:\n"]
-            for acc in accounts:
-                default_mark = " ⭐" if acc.is_default else ""
-                lines.append(
-                    f"  • {acc.name} ({acc.currency}): {format_amount(acc.balance, acc.currency)}{default_mark}"
-                )
-            await update.message.reply_text(
-                "\n".join(lines),
-                reply_markup=InlineKeyboardMarkup([MENU_BUTTON]),
-            )
+        await _show_accounts_screen(update, db=db, user=user, edit_message=False)
     except Exception as e:
         logger.error(f"Error in accounts_command: {e}")
         await update.message.reply_text("Произошла ошибка.")
@@ -206,172 +189,107 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.close()
 
 
+HELP_INTRO = (
+    "💰 *Дядя Скрудж*\n\n"
+    "Я помогаю вести учёт денег прямо в Telegram. Пиши как обычно — я сам пойму, "
+    "что это: расход, доход, перевод или что‑то ещё. Любое изменение показываю в превью — "
+    "оно сохранится только после кнопки ✅.\n\n"
+    "Выбери раздел, чтобы посмотреть, как это работает:"
+)
+
+
+def _help_sections_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🚀 Что я умею", callback_data="cmd:help:overview"),
+            InlineKeyboardButton("💳 Счета", callback_data="cmd:help:accounts"),
+        ],
+        [
+            InlineKeyboardButton("💸 Записать", callback_data="cmd:help:record"),
+            InlineKeyboardButton("📊 Отчёты", callback_data="cmd:help:reports"),
+        ],
+        [
+            InlineKeyboardButton("📄 Google Sheets", callback_data="cmd:help:sheets"),
+            InlineKeyboardButton("🛠 Если что‑то не так", callback_data="cmd:help:troubleshoot"),
+        ],
+        [InlineKeyboardButton("🏠 Главное меню", callback_data="menu:main")],
+    ])
+
+
+HELP_SECTIONS: dict[str, str] = {
+    "overview": (
+        "🚀 *Что я умею*\n\n"
+        "• Чтобы записать расход — напиши, например, `кофе 320`.\n"
+        "• Чтобы записать доход — поставь плюс: `+50000 зп`.\n"
+        "• Чтобы сделать перевод — `переведи 10к с карты на нал`.\n"
+        "• Чтобы получить отчёт — `отчёт за месяц`.\n"
+        "• Чтобы понять, куда уходят деньги — `почему много на еду`.\n\n"
+        "Можно несколько действий сразу: `кофе 300, такси 500, обед 400`.\n"
+        "Голос тоже понимаю — нажми микрофон и продиктуй."
+    ),
+    "accounts": (
+        "💳 *Как устроены счета*\n\n"
+        "У каждого счёта своя валюта (рубли, доллары, крипта — что угодно, "
+        "включая тикеры вроде VND или DONG). Один счёт всегда *главный* ⭐ — "
+        "с него спишутся деньги или туда зачислятся, если ты не указал явно.\n\n"
+        "*Чтобы открыть список счетов* — нажми `💰 Счета` снизу.\n"
+        "Там у каждого счёта свои кнопки: ⭐ сделать главным, ✏️ переименовать, 🗑 удалить.\n\n"
+        "*Через текст:*\n"
+        "• Создать: `создай счёт наличка rub` или `счёт тинькофф usd 5000`.\n"
+        "• Сделать главным: `главный счёт тинькофф`.\n"
+        "• Переименовать: `переименуй счёт тинькофф в тиньк`.\n"
+        "• Удалить: `удали счёт юмани` (удалится со всеми операциями, я переспрошу)."
+    ),
+    "record": (
+        "💸 *Как записывать операции*\n\n"
+        "*Расход:* напиши «что» и «сколько» — `кофе 320`, `такси 500`.\n"
+        "*Доход:* добавь плюс — `+50000 зп`, `получил 10000 возврат`.\n"
+        "*Перевод между счетами:* `переведи 10к с карты на нал`.\n"
+        "Кросс‑валютный: `перекинь с рублей 50к на крипту 600$`.\n\n"
+        "*Сразу несколько:* `кофе 300, такси 500, обед 400`.\n\n"
+        "*Изменить запись:* `измени 3 сумма 500` (3 — номер из истории).\n"
+        "*Удалить запись:* `удали запись 5`.\n\n"
+        "_Если счёт не указан — я возьму главный ⭐. Категории определяю сам._"
+    ),
+    "reports": (
+        "📊 *Отчёты и аналитика*\n\n"
+        "*Чтобы получить отчёт* — напиши `отчёт за месяц`, `статистика за неделю` "
+        "или нажми «📈 Отчёты» в главном меню.\n\n"
+        "В отчёте: доходы, расходы, сальдо, итог по всем счетам и разбивка по категориям.\n\n"
+        "*Чтобы спросить «почему так много»* — просто задай вопрос:\n"
+        "• `почему много на еду в этом месяце`\n"
+        "• `куда ушли деньги в декабре`\n\n"
+        "*История операций:* `история` или `покажи расходы за декабрь`."
+    ),
+    "sheets": (
+        "📄 *Google Sheets*\n\n"
+        "Чтобы подключить свою таблицу:\n\n"
+        "1. Создай таблицу в Google Sheets.\n"
+        "2. Нажми *Share* → добавь *Editor* для:\n"
+        "`rich-uncle-scrooge-bot-648@rich-uncle-scrooge.iam.gserviceaccount.com`\n"
+        "3. Пришли мне: `/sheets <ссылка>`.\n\n"
+        "После этого открой `📄 Google Sheets` в главном меню — там кнопки:\n"
+        "• 📤 *Экспорт* — выгрузить данные из бота в таблицу.\n"
+        "• 📥 *Импорт* — загрузить данные из таблицы (заменяет всё в боте).\n"
+        "• 🔌 *Отключить* — забыть таблицу."
+    ),
+    "troubleshoot": (
+        "🛠 *Если что‑то не так*\n\n"
+        "*«Не понял команду»* — переформулируй короче: `кофе 320` лучше, чем «купил кофе сегодня в 11 утра за 320 рублей».\n\n"
+        "*Создал не тот счёт* — открой `💰 Счета`, нажми 🗑 рядом со счётом, подтверди.\n\n"
+        "*Хочу всё стереть* — напиши `удалить все данные`. Я переспрошу.\n\n"
+        "*Голосовые не работают* — пришли текстом или попробуй ещё раз через минуту.\n\n"
+        "*Подписка / оплата* — `⚙️ Настройки → 💎 Подписка`."
+    ),
+}
+
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /help command."""
-    help_text = """💰 *Дядя Скрудж — справка*
-
-Что это: бот для учёта личных финансов в Telegram. Пишешь как обычно — бот сам понимает что произошло (расход/доход/перевод), сумму, счёт, категорию и дату. Доступна интеграция с Google Sheets.
-
-Важно: любые изменения (операции и счета) бот сначала показывает на подтверждение. Запись происходит только после кнопки ✅ Подтвердить.
-
-⸻
-
-🚀 *Как начать*
-1. Создай счета (например: карта, наличка, крипта)
-2. Выбери главный счёт (по умолчанию)
-_Это счёт, который бот использует автоматически, если ты не указал, откуда списать или куда зачислить деньги._
-3. Просто записывай операции обычным языком
-
-💡 _Полезная привычка: записывать траты сразу после покупки._
-
-⸻
-
-*💳 Счета*
-
-Создать:
-• создай счет наличка rub
-• создай счет тинькофф usd 5000 _(с балансом)_
-
-Удалить / переименовать:
-• удали счет юмани
-• переименуй счет тинькофф в тиньк
-
-Сделать главным:
-• главный счет тинькофф
-
-Посмотреть:
-• мои счета • покажи счета • баланс
-
-⸻
-
-*💸 Расходы*
-• кофе 320
-• такси 500
-• продукты 1500
-
-_Если счёт не указан — списание будет с главного счёта._
-
-⸻
-
-*💰 Доходы*
-• +50000 зарплата
-• получил 10000 возврат
-• зп 150000
-
-⸻
-
-*🔄 Переводы между счетами*
-• переведи 10к с тинька на нал
-• перекинь 5000 с карты на наличку
-• кросс-валютный: перекинь с рублей 50к на крипту 600$
-
-⸻
-
-*📦 Несколько операций сразу*
-• кофе 300, такси 500, обед 400
-• зп 100к и кофе 300
-• создай счет карта rub и счет крипта usdt
-• удали 3 и 5
-
-⸻
-
-*📊 Отчёты и история*
-
-Отчёты:
-• отчет за ноябрь
-• статистика за неделю
-
-_В отчёте: доходы/расходы/сальдо, сумма на всех счетах, и откуда пришли / куда ушли по категориям._
-
-История операций:
-• история
-• покажи расходы за декабрь
-
-⸻
-
-*📄 Google Sheets*
-
-**Настройка:**
-1) Создай таблицу в Google Sheets
-2) "Share" → добавь **Editor** для:
-   `rich-uncle-scrooge-bot-648@rich-uncle-scrooge.iam.gserviceaccount.com`
-3) Пришли в бот: `/sheets <ссылка_на_таблицу>`
-
-**Команды:**
-• `/sheets` — статус и инструкции
-• `/sheets <ссылка>` — подключить таблицу
-• `/sheets reset` — отключить
-• `/sheets_export` — выгрузить все данные в таблицу
-• `/sheets_import` — загрузить все данные из таблицы
-
-**Как это работает:**
-• `/sheets_export` — полностью перезаписывает таблицу данными из бота
-• `/sheets_import` — полностью заменяет данные в боте данными из таблицы
-
-⚠️ **Важно:** синхронизация НЕ автоматическая! Используй команды вручную.
-
-**Рабочий процесс:**
-1) `/sheets_export` — выгрузи данные
-2) Редактируй таблицу (меняй балансы, добавляй операции)
-3) `/sheets_import` — загрузи изменения обратно
-
-**Структура таблицы:**
-• **Балансы** — счета, валюты, балансы
-• **YYYY-MM** — операции по месяцам с итогами
-
-⸻
-
-*✏️ Редактирование и удаление операций*
-• измени 3 сумма 500
-• редактировать 5 категория еда
-• удали запись 5
-
-⸻
-
-*🔍 Аналитика "почему так много"*
-• почему так много на еду в этом месяце
-• куда ушли деньги в декабре
-
-_Бот объяснит, что дало основной вклад (категории, крупные операции, пики по дням)._
-
-⸻
-
-*🎤 Голосовые сообщения*
-Можешь просто надиктовать — бот распознает речь и обработает как текст.
-
-⸻
-
-*💎 Подписка*
-
-Все возможности бота доступны по подписке Premium.
-• 🎁 Пробный период: 14 дней бесплатно (один раз)
-• 📅 Месяц: 190₽
-• 📆 Год: 1900₽ (выгода ~17%)
-
-Управление: ⚙️ Настройки → 💎 Подписка
-
-⸻
-
-*📋 Бюджеты*
-• бюджет на кофе 3000
-• лимит на еду 15000₽ в месяц
-
-_Бот предупредит при 80% и 100% расхода бюджета._
-
-⸻
-
-*🔥 Стрики и достижения*
-
-Записывай расходы каждый день — бот считает стрик!
-Открывай ачивки: первая операция, 7 дней подряд, 100 операций и другие.
-
-⸻
-
-✅ _Категории определяются автоматически. Все операции требуют подтверждения кнопкой._"""
+    """Handle /help command — entry to sectioned help."""
     await update.message.reply_text(
-        help_text,
+        HELP_INTRO,
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([MENU_BUTTON]),
+        reply_markup=_help_sections_keyboard(),
     )
 
 
@@ -385,10 +303,20 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await handle_persistent_menu(update, context):
         return
 
-    # Check if user is in custom account creation flow (name or balance step)
-    if context.user_data.get("custom_account_currency") or context.user_data.get("custom_account_name"):
+    # Check if user is in custom account creation flow (currency, name, or balance step)
+    if (
+        context.user_data.get("awaiting_custom_currency")
+        or context.user_data.get("custom_account_currency")
+        or context.user_data.get("custom_account_name")
+    ):
         from bot.account_setup import handle_custom_account_name
         await handle_custom_account_name(update, context)
+        return
+
+    # Check if user is in rename flow
+    if context.user_data.get("rename_account_id"):
+        from bot.menu import handle_rename_account_input
+        await handle_rename_account_input(update, context)
         return
 
     db = get_db()
@@ -650,7 +578,6 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 async def _handle_set_budget(db: Session, update: Update, user: User, llm_response):
     """Handle set_budget intent — create or update a budget for a category."""
-    from db.models import Budget
 
     category = llm_response.data.budget_category
     limit_val = llm_response.data.budget_limit
@@ -724,6 +651,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await account_action_callback(update, context)
         elif data.startswith("acct:balance:"):
             await _handle_balance_skip(update, context)
+        elif (
+            data.startswith("acct:setmain:")
+            or data.startswith("acct:rename:")
+            or data.startswith("acct:delete:")
+            or data.startswith("acct:delete_confirm:")
+            or data == "acct:rename_cancel"
+        ):
+            from bot.menu import account_management_callback
+            await account_management_callback(update, context)
         else:
             await account_setup_callback(update, context)
         return

@@ -4,14 +4,13 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from db.models import User, SubscriptionPlan
+from db.models import SubscriptionPlan
 from db.session import SessionLocal
 from services.ledger import get_or_create_user
 from services.billing import (
     activate_trial, create_payment, check_payment_status,
     confirm_payment, get_subscription_info, PLANS,
 )
-from bot.middleware import _has_premium_access
 
 logger = logging.getLogger(__name__)
 

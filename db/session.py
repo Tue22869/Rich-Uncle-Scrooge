@@ -58,6 +58,7 @@ def _ensure_sqlite_schema() -> None:
             "last_activity_date": "ALTER TABLE users ADD COLUMN last_activity_date VARCHAR",
             "total_operations": "ALTER TABLE users ADD COLUMN total_operations INTEGER DEFAULT 0 NOT NULL",
             "achievements_json": "ALTER TABLE users ADD COLUMN achievements_json JSON",
+            "onboarding_step": "ALTER TABLE users ADD COLUMN onboarding_step INTEGER DEFAULT 0 NOT NULL",
         }
 
         for col_name, sql in migrations.items():

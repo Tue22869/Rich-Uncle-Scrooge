@@ -6,7 +6,7 @@ from typing import Optional, Dict, Tuple
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy.orm import Session
 
-from db.models import User, Subscription, SubscriptionPlan, SubscriptionStatus
+from db.models import User, Subscription, SubscriptionStatus
 
 logger = logging.getLogger(__name__)
 

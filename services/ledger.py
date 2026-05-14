@@ -250,23 +250,70 @@ def create_account(
     return account
 
 
+def count_account_transactions(db: Session, user_id: int, account_id: int) -> int:
+    """Count all transactions referencing this account (as account, from, or to)."""
+    from sqlalchemy import or_
+    return db.query(Transaction).filter(
+        Transaction.user_id == user_id,
+        or_(
+            Transaction.account_id == account_id,
+            Transaction.from_account_id == account_id,
+            Transaction.to_account_id == account_id,
+        )
+    ).count()
+
+
 def delete_account(db: Session, user_id: int, account_id: int) -> bool:
-    """Delete account (only if balance is zero)."""
+    """Delete account and cascade-delete all related transactions.
+
+    If the deleted account was the user's default, the first remaining account
+    becomes the new default (or user.default_account_id is cleared if none remain).
+    """
+    from sqlalchemy import or_
+
     account = db.query(Account).filter(
         Account.id == account_id,
         Account.user_id == user_id
     ).first()
-    
+
     if not account:
         raise ValueError(f"Account {account_id} not found")
-    
-    if account.balance != Decimal("0.00"):
-        raise ValueError(f"Cannot delete account with non-zero balance: {account.balance}")
-    
-    db.delete(account)
-    db.commit()
-    logger.info(f"Deleted account: {account_id}")
-    return True
+
+    was_default = account.is_default
+
+    try:
+        # Cascade-delete transactions tied to this account (as primary, from, or to).
+        # We don't recompute balances on other accounts in transfers — the user
+        # explicitly chose to wipe everything related to this account.
+        db.query(Transaction).filter(
+            Transaction.user_id == user_id,
+            or_(
+                Transaction.account_id == account_id,
+                Transaction.from_account_id == account_id,
+                Transaction.to_account_id == account_id,
+            )
+        ).delete(synchronize_session=False)
+
+        db.delete(account)
+        db.flush()
+
+        # Reassign default if needed
+        user = db.query(User).filter(User.id == user_id).first()
+        if user and (was_default or user.default_account_id == account_id):
+            remaining = db.query(Account).filter(Account.user_id == user_id).order_by(Account.id.asc()).first()
+            if remaining:
+                remaining.is_default = True
+                user.default_account_id = remaining.id
+            else:
+                user.default_account_id = None
+
+        db.commit()
+        logger.info(f"Deleted account {account_id} (was_default={was_default})")
+        return True
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to delete account {account_id}: {e}")
+        raise
 
 
 def rename_account(

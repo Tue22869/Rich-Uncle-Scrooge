@@ -2,7 +2,6 @@
 import asyncio
 import json
 import logging
-from decimal import Decimal
 from datetime import datetime, timedelta
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -208,7 +207,6 @@ async def sheets_import_command(update: Update, context: ContextTypes.DEFAULT_TY
             parse_accounts_from_balances_sheet,
             parse_transactions_from_month_sheets,
         )
-        from services.ledger import clear_user_data, create_account, create_transaction_raw
 
         if not is_configured():
             await update.message.reply_text(

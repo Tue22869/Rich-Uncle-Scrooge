@@ -88,7 +88,7 @@ def create_payment(db: Session, user_id: int, plan: SubscriptionPlan, return_url
                 },
                 "confirmation": {
                     "type": "redirect",
-                    "return_url": return_url or f"https://t.me/uncle_scrooge_bot",
+                    "return_url": return_url or "https://t.me/uncle_scrooge_bot",
                 },
                 "capture": True,
                 "description": f"Подписка «Дядя Скрудж» — {plan_info['label']}",
@@ -204,7 +204,6 @@ def confirm_payment(db: Session, payment_id: str) -> Optional[Subscription]:
 
 def get_subscription_info(db: Session, user: User) -> Dict:
     """Get human-readable subscription info for display."""
-    from bot.middleware import _has_premium_access, _get_trial_days_left
 
     now = datetime.utcnow()
     active_sub = (

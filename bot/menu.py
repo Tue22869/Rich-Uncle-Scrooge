@@ -1,6 +1,5 @@
 """Menu handlers — main menu, reports menu, settings, navigation."""
 import logging
-from datetime import datetime
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes
@@ -62,30 +61,7 @@ async def handle_persistent_menu(update: Update, context: ContextTypes.DEFAULT_T
             return True
 
         if text == "💰 Счета":
-            accounts = db.query(Account).filter(Account.user_id == user.id).all()
-            if not accounts:
-                msg = "💰 *Мои счета*\n\nУ вас пока нет счетов.\nНапишите: «создай счет наличка rub»"
-            else:
-                lines = ["💰 *Мои счета*\n"]
-                for acc in accounts:
-                    default_mark = " ⭐" if acc.is_default else ""
-                    lines.append(f"  • {acc.name} ({acc.currency}): {format_amount(acc.balance, acc.currency)}{default_mark}")
-                msg = "\n".join(lines)
-            buttons = [
-                [
-                    InlineKeyboardButton("➕ Создать счёт", callback_data="acct:custom"),
-                    InlineKeyboardButton("⭐ Назначить главный", callback_data="cmd:set_default"),
-                ],
-                [InlineKeyboardButton("🏠 Главное меню", callback_data=MENU_MAIN)],
-            ]
-            if not accounts:
-                # No accounts — only show create button
-                buttons = [
-                    [InlineKeyboardButton("➕ Создать счёт", callback_data="acct:custom")],
-                    [InlineKeyboardButton("🏠 Главное меню", callback_data=MENU_MAIN)],
-                ]
-            keyboard = InlineKeyboardMarkup(buttons)
-            await update.message.reply_text(msg, reply_markup=keyboard, parse_mode="Markdown")
+            await _show_accounts_screen(update, db=db, user=user, edit_message=False)
 
         elif text == "📊 Отчёты":
             usage_line = "📊 Отчёты: безлимитные ✨"
@@ -133,21 +109,10 @@ async def handle_persistent_menu(update: Update, context: ContextTypes.DEFAULT_T
             )
 
         elif text == "❓ Помощь":
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("📖 Инструкция", callback_data="cmd:help")],
-                [InlineKeyboardButton("ℹ️ О боте", callback_data=MENU_ABOUT)],
-                [InlineKeyboardButton("🏠 Главное меню", callback_data=MENU_MAIN)],
-            ])
+            from bot.handlers import HELP_INTRO, _help_sections_keyboard
             await update.message.reply_text(
-                "❓ *Помощь*\n\n"
-                "💬 Просто пишите как обычно — бот всё поймёт:\n"
-                "• «кофе 320» — расход\n"
-                "• «+50000 зп» — доход\n"
-                "• «переведи 10к с карты на нал» — перевод\n"
-                "• «бюджет на кофе 3000» — установить бюджет\n"
-                "• «отчет за месяц» — отчёт\n"
-                "• «почему много на еду» — аналитика",
-                reply_markup=keyboard,
+                HELP_INTRO,
+                reply_markup=_help_sections_keyboard(),
                 parse_mode="Markdown",
             )
 
@@ -186,8 +151,12 @@ async def _show_main_menu(update: Update, edit_message: bool = False):
 
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("📊 Мои финансы", callback_data=MENU_FINANCES),
+                InlineKeyboardButton("💰 Счета", callback_data="cmd:accounts"),
                 InlineKeyboardButton("📈 Отчёты", callback_data=MENU_REPORTS),
+            ],
+            [
+                InlineKeyboardButton("📊 Мои финансы", callback_data=MENU_FINANCES),
+                InlineKeyboardButton("📄 Google Sheets", callback_data="cmd:sheets"),
             ],
             [
                 InlineKeyboardButton("💎 Premium", callback_data=MENU_PREMIUM),
@@ -218,14 +187,16 @@ async def _show_main_menu(update: Update, edit_message: bool = False):
 
 
 async def _show_finances_menu(update: Update):
-    """Show user's accounts and quick actions."""
+    """Show finances dashboard: totals by currency + shortcuts (no duplicate list of accounts)."""
+    from decimal import Decimal
+
     query = update.callback_query
     tg_user_id = update.effective_user.id
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.tg_user_id == tg_user_id).first()
         if not user:
-            await query.edit_message_text("Сначала начните работу: /start")
+            await query.edit_message_text("Сначала начни работу: /start")
             return
 
         accounts = db.query(Account).filter(Account.user_id == user.id).all()
@@ -233,26 +204,36 @@ async def _show_finances_menu(update: Update):
         if not accounts:
             text = (
                 "📊 *Мои финансы*\n\n"
-                "У вас пока нет счетов.\n\n"
-                "Создайте первый счёт:\n"
-                "Напишите: «создай счет наличка rub»"
+                "У тебя пока нет счетов.\n\n"
+                "Чтобы создать первый — открой `💰 Счета` снизу и нажми «➕ Создать счёт»."
             )
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("💰 Счета", callback_data="cmd:accounts")],
+                [InlineKeyboardButton("↩️ Главное меню", callback_data=MENU_MAIN)],
+            ])
         else:
-            lines = ["📊 *Мои финансы*\n"]
+            totals: dict[str, Decimal] = {}
             for acc in accounts:
-                default_mark = " ⭐" if acc.is_default else ""
-                lines.append(
-                    f"  • {acc.name} ({acc.currency}): {format_amount(acc.balance, acc.currency)}{default_mark}"
-                )
+                totals.setdefault(acc.currency, Decimal("0"))
+                totals[acc.currency] += acc.balance
+
+            lines = ["📊 *Мои финансы*\n", "Итого по валютам:"]
+            for currency, total in totals.items():
+                lines.append(f"  {format_amount(total, currency)}")
+            lines.append(f"\nСчетов: {len(accounts)}")
             text = "\n".join(lines)
 
-        keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("💰 Счета", callback_data="cmd:accounts"),
-                InlineKeyboardButton("📜 История", callback_data="cmd:history"),
-            ],
-            [InlineKeyboardButton("↩️ Главное меню", callback_data=MENU_MAIN)],
-        ])
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("💰 Счета", callback_data="cmd:accounts"),
+                    InlineKeyboardButton("📜 История", callback_data="cmd:history"),
+                ],
+                [
+                    InlineKeyboardButton("📄 Google Sheets", callback_data="cmd:sheets"),
+                    InlineKeyboardButton("📈 Отчёты", callback_data=MENU_REPORTS),
+                ],
+                [InlineKeyboardButton("↩️ Главное меню", callback_data=MENU_MAIN)],
+            ])
 
         await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
     finally:
@@ -292,27 +273,15 @@ async def _show_reports_menu(update: Update):
 
 
 async def _show_help_menu(update: Update):
-    """Show abbreviated help in menu."""
+    """Show help entry (delegates to sectioned help)."""
+    from bot.handlers import HELP_INTRO, _help_sections_keyboard
+
     query = update.callback_query
-    text = (
-        "❓ *Помощь*\n\n"
-        "💬 Просто пишите как обычно — бот всё поймёт:\n\n"
-        "• «кофе 320» — расход\n"
-        "• «+50000 зп» — доход\n"
-        "• «переведи 10к с карты на нал» — перевод\n"
-        "• «отчет за месяц» — отчёт\n"
-        "• «почему много на еду» — аналитика\n\n"
-        "📋 Подробная справка: /help\n"
-        "📊 Счета: /accounts\n"
-        "📈 Отчёт: /report"
+    await query.edit_message_text(
+        HELP_INTRO,
+        reply_markup=_help_sections_keyboard(),
+        parse_mode="Markdown",
     )
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 Полная справка", callback_data="cmd:help")],
-        [InlineKeyboardButton("↩️ Главное меню", callback_data=MENU_MAIN)],
-    ])
-
-    await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
 async def _show_settings_menu(update: Update):
@@ -380,134 +349,122 @@ async def _show_about(update: Update):
     await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
-async def _show_accounts_inline(update: Update):
-    """Show accounts list via callback query (edit message instead of reply)."""
-    query = update.callback_query
-    tg_user_id = update.effective_user.id
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.tg_user_id == tg_user_id).first()
-        if not user:
-            await query.edit_message_text("Сначала начните работу: /start")
-            return
+def _build_accounts_screen(accounts: list) -> tuple[str, InlineKeyboardMarkup]:
+    """Build the unified accounts screen text + inline keyboard.
 
-        accounts = db.query(Account).filter(Account.user_id == user.id).all()
-
-        if not accounts:
-            text = (
-                "💰 *Мои счета*\n\n"
-                "У вас пока нет счетов.\n\n"
-                "Создайте первый счёт:\n"
-                "Напишите: «создай счет наличка rub»"
-            )
-        else:
-            lines = ["💰 *Мои счета*\n"]
-            for acc in accounts:
-                default_mark = " ⭐" if acc.is_default else ""
-                lines.append(
-                    f"  • {acc.name} ({acc.currency}): {format_amount(acc.balance, acc.currency)}{default_mark}"
-                )
-            text = "\n".join(lines)
-
+    Each account row gets its own action row: [⭐ if not default] [✏️ Rename] [🗑 Delete].
+    """
+    if not accounts:
+        text = (
+            "💰 *Мои счета*\n\n"
+            "Здесь пусто. Чтобы создать первый счёт — нажми кнопку ниже."
+        )
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("↩️ Главное меню", callback_data=MENU_MAIN)],
+            [InlineKeyboardButton("➕ Создать счёт", callback_data="acct:custom")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data=MENU_MAIN)],
         ])
-        await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        return text, keyboard
+
+    lines = ["💰 *Мои счета*\n"]
+    rows: list[list[InlineKeyboardButton]] = []
+    for acc in accounts:
+        mark = "⭐" if acc.is_default else "•"
+        lines.append(f"{mark} {acc.name} ({acc.currency}): {format_amount(acc.balance, acc.currency)}")
+        action_row = []
+        if not acc.is_default:
+            action_row.append(InlineKeyboardButton("⭐", callback_data=f"acct:setmain:{acc.id}"))
+        action_row.append(InlineKeyboardButton("✏️", callback_data=f"acct:rename:{acc.id}"))
+        action_row.append(InlineKeyboardButton("🗑", callback_data=f"acct:delete:{acc.id}"))
+        rows.append(action_row)
+
+    lines.append("")
+    lines.append("⭐ — главный счёт (по умолчанию). Нажми ⭐ у другого, чтобы переключить.")
+
+    rows.append([InlineKeyboardButton("➕ Создать счёт", callback_data="acct:custom")])
+    rows.append([
+        InlineKeyboardButton("📄 Google Sheets", callback_data="cmd:sheets"),
+        InlineKeyboardButton("📜 История", callback_data="cmd:history"),
+    ])
+    rows.append([InlineKeyboardButton("🏠 Главное меню", callback_data=MENU_MAIN)])
+
+    return "\n".join(lines), InlineKeyboardMarkup(rows)
+
+
+async def _show_accounts_screen(update: Update, *, db=None, user=None, edit_message: bool = True):
+    """Render the unified accounts screen.
+
+    Works both from callback (edit_message=True) and from a plain message (edit_message=False).
+    Accepts pre-resolved db/user to avoid opening a new session inside another one.
+    """
+    own_db = False
+    if db is None:
+        db = SessionLocal()
+        own_db = True
+
+    try:
+        if user is None:
+            tg_user_id = update.effective_user.id
+            user = db.query(User).filter(User.tg_user_id == tg_user_id).first()
+            if not user:
+                msg = "Сначала начни работу: /start"
+                if edit_message and update.callback_query:
+                    await update.callback_query.edit_message_text(msg)
+                else:
+                    await update.effective_message.reply_text(msg)
+                return
+
+        accounts = db.query(Account).filter(Account.user_id == user.id).order_by(Account.id.asc()).all()
+        text, keyboard = _build_accounts_screen(accounts)
+
+        if edit_message and update.callback_query:
+            await update.callback_query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        else:
+            await update.effective_message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
     except Exception as e:
-        logger.error("Error in _show_accounts_inline: %s", e, exc_info=True)
-        await query.edit_message_text("❌ Ошибка при загрузке счетов.")
+        logger.error("Error in _show_accounts_screen: %s", e, exc_info=True)
+        err = "❌ Ошибка при загрузке счетов."
+        if edit_message and update.callback_query:
+            await update.callback_query.edit_message_text(err)
+        else:
+            await update.effective_message.reply_text(err)
     finally:
-        db.close()
+        if own_db:
+            db.close()
 
 
 async def _show_help_full(update: Update):
-    """Show full help text via callback query (edit message)."""
+    """Help entry from callback — same sectioned interface as /help."""
+    from bot.handlers import HELP_INTRO, _help_sections_keyboard
+
     query = update.callback_query
-    # Telegram messages have a 4096 char limit; help text is long, so we truncate
-    # to the most essential parts for inline display
-    text = (
-        "💰 *Дядя Скрудж — справка*\n\n"
-        "Пишешь как обычно — бот сам понимает.\n\n"
-        "*💸 Расходы:*\n"
-        "• кофе 320\n"
-        "• такси 500\n"
-        "• продукты 1500\n\n"
-        "*💰 Доходы:*\n"
-        "• +50000 зп\n"
-        "• получил 10000 возврат\n\n"
-        "*🔄 Переводы:*\n"
-        "• переведи 10к с карты на нал\n\n"
-        "*💳 Счета:*\n"
-        "• создай счет наличка rub\n"
-        "• удали счет юмани\n"
-        "• главный счет карта\n\n"
-        "*📊 Отчёты:*\n"
-        "• отчет за ноябрь\n"
-        "• статистика за неделю\n\n"
-        "*🔍 Аналитика:*\n"
-        "• почему так много на еду\n\n"
-        "*📦 Несколько операций:*\n"
-        "• кофе 300, такси 500, обед 400\n\n"
-        "*✏️ Редактирование:*\n"
-        "• измени 3 сумма 500\n"
-        "• удали 5\n\n"
-        "*📋 Бюджеты:*\n"
-        "• бюджет на кофе 3000\n"
-        "• лимит на еду 15000₽\n\n"
-        "🔥 Стрики и ачивки за ежедневные записи\n"
-        "🎤 Голосовые сообщения тоже работают!\n"
-        "📄 Google Sheets: /sheets\n\n"
-        "Полная справка: /help"
+    await query.edit_message_text(
+        HELP_INTRO,
+        reply_markup=_help_sections_keyboard(),
+        parse_mode="Markdown",
     )
 
+
+async def _show_help_section(update: Update, section: str):
+    """Show one specific help section."""
+    from bot.handlers import HELP_SECTIONS
+
+    query = update.callback_query
+    text = HELP_SECTIONS.get(section)
+    if not text:
+        text = "Раздел не найден."
+
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("↩️ Главное меню", callback_data=MENU_MAIN)],
+        [InlineKeyboardButton("← Назад к разделам", callback_data=MENU_HELP)],
+        [InlineKeyboardButton("🏠 Главное меню", callback_data=MENU_MAIN)],
     ])
     await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
-async def _show_set_default_picker(update: Update):
-    """Show account list for selecting default account."""
-    query = update.callback_query
-    tg_user_id = update.effective_user.id
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.tg_user_id == tg_user_id).first()
-        if not user:
-            await query.edit_message_text("Сначала начните работу: /start")
-            return
-        accounts = db.query(Account).filter(Account.user_id == user.id).all()
-        if not accounts:
-            await query.edit_message_text(
-                "У вас пока нет счетов.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("↩️ Назад", callback_data=MENU_MAIN)],
-                ]),
-            )
-            return
-        buttons = []
-        for acc in accounts:
-            mark = "⭐ " if acc.is_default else ""
-            buttons.append([InlineKeyboardButton(
-                f"{mark}{acc.name} ({acc.currency})",
-                callback_data=f"cmd:setdef:{acc.id}",
-            )])
-        buttons.append([InlineKeyboardButton("↩️ Назад", callback_data=MENU_MAIN)])
-        await query.edit_message_text(
-            "⭐ *Выберите главный счёт:*\n\n"
-            "Главный счёт используется по умолчанию для расходов и доходов.",
-            reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode="Markdown",
-        )
-    finally:
-        db.close()
-
-
-async def _handle_set_default(update: Update, data: str):
-    """Set a specific account as default."""
+async def _handle_setmain_callback(update: Update, account_id: int):
+    """⭐ button next to an account — set it as the default."""
     from services.ledger import set_default_account
+
     query = update.callback_query
-    account_id = int(data.replace("cmd:setdef:", ""))
     tg_user_id = update.effective_user.id
     db = SessionLocal()
     try:
@@ -517,18 +474,207 @@ async def _handle_set_default(update: Update, data: str):
             return
         account = db.query(Account).filter(Account.id == account_id, Account.user_id == user.id).first()
         if not account:
-            await query.edit_message_text("Счёт не найден.")
+            await query.answer("Счёт не найден.", show_alert=True)
             return
-        set_default_account(db, user.id, account.name)
+        set_default_account(db, user.id, account.id)
+        await query.answer(f"⭐ Главный: {account.name}")
+        # Re-render the same screen with updated state
+        await _show_accounts_screen(update, db=db, user=user, edit_message=True)
+    finally:
+        db.close()
+
+
+async def _handle_rename_start(update: Update, context, account_id: int):
+    """✏️ button — enter rename FSM."""
+    query = update.callback_query
+    tg_user_id = update.effective_user.id
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.tg_user_id == tg_user_id).first()
+        if not user:
+            await query.answer("Ошибка.", show_alert=True)
+            return
+        account = db.query(Account).filter(Account.id == account_id, Account.user_id == user.id).first()
+        if not account:
+            await query.answer("Счёт не найден.", show_alert=True)
+            return
+
+        context.user_data["rename_account_id"] = account.id
         await query.edit_message_text(
-            f"⭐ Счёт «{account.name}» назначен главным!",
+            f"✏️ *Переименовать «{account.name}»*\n\n"
+            "Напиши новое название сообщением (1–50 символов).",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("💰 Счета", callback_data="cmd:accounts")],
-                [InlineKeyboardButton("🏠 Главное меню", callback_data=MENU_MAIN)],
+                [InlineKeyboardButton("❌ Отмена", callback_data="acct:rename_cancel")],
             ]),
+            parse_mode="Markdown",
         )
     finally:
         db.close()
+
+
+async def handle_rename_account_input(update: Update, context):
+    """Free-text new name for an account being renamed."""
+    from services.ledger import rename_account, find_account_by_name
+
+    account_id = context.user_data.get("rename_account_id")
+    if not account_id:
+        return
+
+    new_name = (update.message.text or "").strip()
+    if not new_name or len(new_name) > 50:
+        await update.message.reply_text("❌ Название должно быть 1–50 символов. Попробуй ещё раз.")
+        return
+
+    tg_user_id = update.effective_user.id
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.tg_user_id == tg_user_id).first()
+        if not user:
+            context.user_data.pop("rename_account_id", None)
+            return
+
+        clash = find_account_by_name(db, user.id, new_name, exact_only=True)
+        if clash and clash.id != account_id:
+            await update.message.reply_text(
+                f"❌ Счёт «{new_name}» уже существует. Выбери другое имя.",
+            )
+            return
+
+        try:
+            rename_account(db, user.id, account_id, new_name)
+        except ValueError:
+            await update.message.reply_text("❌ Счёт не найден.")
+            context.user_data.pop("rename_account_id", None)
+            return
+
+        context.user_data.pop("rename_account_id", None)
+        await update.message.reply_text(f"✅ Новое имя: «{new_name}».")
+        await _show_accounts_screen(update, db=db, user=user, edit_message=False)
+    finally:
+        db.close()
+
+
+async def _handle_rename_cancel(update: Update, context):
+    """Cancel rename flow."""
+    query = update.callback_query
+    context.user_data.pop("rename_account_id", None)
+    await query.answer("Отменено.")
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.tg_user_id == update.effective_user.id).first()
+        await _show_accounts_screen(update, db=db, user=user, edit_message=True)
+    finally:
+        db.close()
+
+
+async def _handle_delete_prompt(update: Update, account_id: int):
+    """🗑 button — show delete confirmation with operation count."""
+    from services.ledger import count_account_transactions
+
+    query = update.callback_query
+    tg_user_id = update.effective_user.id
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.tg_user_id == tg_user_id).first()
+        if not user:
+            await query.answer("Ошибка.", show_alert=True)
+            return
+        account = db.query(Account).filter(Account.id == account_id, Account.user_id == user.id).first()
+        if not account:
+            await query.answer("Счёт не найден.", show_alert=True)
+            return
+
+        tx_count = count_account_transactions(db, user.id, account.id)
+
+        text_lines = [
+            f"🗑 *Удалить счёт «{account.name}»?*",
+            "",
+            f"Валюта: {account.currency}",
+            f"Баланс: {format_amount(account.balance, account.currency)}",
+        ]
+        if tx_count > 0:
+            text_lines.append(f"Вместе со счётом удалится {tx_count} операций.")
+        text_lines.append("")
+        text_lines.append("Это необратимо.")
+
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Удалить", callback_data=f"acct:delete_confirm:{account.id}"),
+                InlineKeyboardButton("❌ Отмена", callback_data="cmd:accounts"),
+            ],
+        ])
+        await query.edit_message_text("\n".join(text_lines), reply_markup=keyboard, parse_mode="Markdown")
+    finally:
+        db.close()
+
+
+async def _handle_delete_confirm(update: Update, account_id: int):
+    """✅ Удалить — actually delete the account (cascade)."""
+    from services.ledger import delete_account
+
+    query = update.callback_query
+    tg_user_id = update.effective_user.id
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.tg_user_id == tg_user_id).first()
+        if not user:
+            await query.answer("Ошибка.", show_alert=True)
+            return
+        account = db.query(Account).filter(Account.id == account_id, Account.user_id == user.id).first()
+        if not account:
+            await query.answer("Счёт не найден.", show_alert=True)
+            return
+
+        name = account.name
+        try:
+            delete_account(db, user.id, account.id)
+        except Exception as e:
+            logger.error("delete_account failed: %s", e, exc_info=True)
+            await query.edit_message_text(f"❌ Не удалось удалить: {e}")
+            return
+
+        await query.answer(f"🗑 «{name}» удалён.")
+        # Re-fetch user to get refreshed default_account_id
+        user = db.query(User).filter(User.id == user.id).first()
+        await _show_accounts_screen(update, db=db, user=user, edit_message=True)
+    finally:
+        db.close()
+
+
+async def account_management_callback(update: Update, context):
+    """Dispatch acct:setmain / acct:rename / acct:delete / acct:delete_confirm callbacks."""
+    query = update.callback_query
+    data = query.data or ""
+
+    if data == "acct:rename_cancel":
+        await _handle_rename_cancel(update, context)
+        return
+
+    parts = data.split(":")
+    if len(parts) < 3:
+        await query.answer()
+        return
+
+    action = parts[1]
+    try:
+        account_id = int(parts[2])
+    except (ValueError, IndexError):
+        await query.answer("Некорректный счёт.", show_alert=True)
+        return
+
+    if action == "setmain":
+        await query.answer()
+        await _handle_setmain_callback(update, account_id)
+    elif action == "rename":
+        await query.answer()
+        await _handle_rename_start(update, context, account_id)
+    elif action == "delete":
+        await query.answer()
+        await _handle_delete_prompt(update, account_id)
+    elif action == "delete_confirm":
+        await _handle_delete_confirm(update, account_id)
+    else:
+        await query.answer()
 
 
 async def menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -571,13 +717,13 @@ async def menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == MENU_ABOUT:
         await _show_about(update)
     elif data == "cmd:accounts":
-        await _show_accounts_inline(update)
+        await _show_accounts_screen(update, edit_message=True)
     elif data == "cmd:history":
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("↩️ Главное меню", callback_data=MENU_MAIN)],
         ])
         await query.edit_message_text(
-            "📜 Напишите «история» или «покажи расходы за месяц»",
+            "📜 Напиши «история» или «покажи расходы за месяц».",
             reply_markup=keyboard,
         )
     elif data == "cmd:analytics":
@@ -585,29 +731,150 @@ async def menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
             [InlineKeyboardButton("↩️ Главное меню", callback_data=MENU_MAIN)],
         ])
         await query.edit_message_text(
-            "🔍 Напишите «почему много на еду» или подобный вопрос",
+            "🔍 Напиши «почему много на еду» или похожий вопрос.",
             reply_markup=keyboard,
         )
     elif data == "cmd:help":
         await _show_help_full(update)
-    elif data == "cmd:set_default":
-        await _show_set_default_picker(update)
-    elif data.startswith("cmd:setdef:"):
-        await _handle_set_default(update, data)
     elif data == "cmd:sheets":
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("↩️ Главное меню", callback_data=MENU_MAIN)],
-        ])
-        await query.edit_message_text(
-            "📊 Используйте /sheets для настройки Google Sheets",
-            reply_markup=keyboard,
-        )
+        await _show_sheets_screen(update)
+    elif data == "cmd:sheets:export":
+        await _handle_sheets_export_callback(update, context)
+    elif data == "cmd:sheets:import":
+        await _handle_sheets_import_callback(update, context)
+    elif data == "cmd:sheets:reset":
+        await _handle_sheets_reset_callback(update)
+    elif data.startswith("cmd:help:"):
+        await _show_help_section(update, data.replace("cmd:help:", ""))
     elif data == "settings:timezone":
         await _show_timezone_picker(update)
     elif data.startswith("settings:tz:"):
         await _handle_timezone_set(update, data)
     elif data.startswith("report:"):
         await _handle_report_shortcut(update, context, data)
+
+
+async def _show_sheets_screen(update: Update):
+    """Full Google Sheets screen — status + Export/Import/Disconnect or setup instructions."""
+    query = update.callback_query
+    tg_user_id = update.effective_user.id
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.tg_user_id == tg_user_id).first()
+        if not user:
+            await query.edit_message_text("Сначала начни работу: /start")
+            return
+
+        try:
+            from services.google_sheets_client import is_configured, get_service_account_email
+        except Exception as e:
+            logger.warning("google_sheets_client import failed: %s", e)
+            is_configured = lambda: False  # noqa: E731
+            get_service_account_email = lambda: None  # noqa: E731
+
+        if not is_configured():
+            await query.edit_message_text(
+                "❌ Интеграция Google Sheets не настроена на стороне бота.\n"
+                "Попроси администратора включить её.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("↩️ Главное меню", callback_data=MENU_MAIN)],
+                ]),
+            )
+            return
+
+        if user.google_sheets_spreadsheet_id:
+            text = (
+                "📄 *Google Sheets*\n\n"
+                f"Подключена таблица:\n`{user.google_sheets_spreadsheet_id}`\n\n"
+                "Выгрузка перезаписывает таблицу данными из бота.\n"
+                "Загрузка заменяет данные в боте данными из таблицы."
+            )
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("📤 Экспорт", callback_data="cmd:sheets:export"),
+                    InlineKeyboardButton("📥 Импорт", callback_data="cmd:sheets:import"),
+                ],
+                [InlineKeyboardButton("🔌 Отключить таблицу", callback_data="cmd:sheets:reset")],
+                [InlineKeyboardButton("↩️ Главное меню", callback_data=MENU_MAIN)],
+            ])
+        else:
+            sa_email = get_service_account_email() or "rich-uncle-scrooge-bot-648@rich-uncle-scrooge.iam.gserviceaccount.com"
+            text = (
+                "📄 *Подключение Google Sheets*\n\n"
+                "Чтобы синхронизировать данные с таблицей:\n\n"
+                "1. Создай таблицу в Google Sheets.\n"
+                "2. Нажми *Share* → добавь *Editor* для:\n"
+                f"`{sa_email}`\n"
+                "3. Пришли мне команду:\n"
+                "`/sheets <ссылка>`\n\n"
+                "После этого вернись на этот экран — появятся кнопки экспорта и импорта."
+            )
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("↩️ Главное меню", callback_data=MENU_MAIN)],
+            ])
+
+        await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
+    finally:
+        db.close()
+
+
+async def _handle_sheets_export_callback(update: Update, context):
+    """Trigger /sheets_export via the inline button."""
+    query = update.callback_query
+    await query.answer("⏳ Экспортирую…")
+    from bot.sheets import sheets_export_command
+    # The export command sends its own messages via update.message.reply_text,
+    # but here we have a callback. We re-use the command by simulating: it relies
+    # on update.message; we pass update.callback_query.message so reply_text works.
+    class _FakeUpdate:
+        def __init__(self, real):
+            self._real = real
+        @property
+        def effective_user(self):
+            return self._real.effective_user
+        @property
+        def message(self):
+            return self._real.callback_query.message
+        def __getattr__(self, item):
+            return getattr(self._real, item)
+    await sheets_export_command(_FakeUpdate(update), context)
+
+
+async def _handle_sheets_import_callback(update: Update, context):
+    """Trigger /sheets_import via the inline button."""
+    query = update.callback_query
+    await query.answer("⏳ Загружаю предпросмотр…")
+    from bot.sheets import sheets_import_command
+    class _FakeUpdate:
+        def __init__(self, real):
+            self._real = real
+        @property
+        def effective_user(self):
+            return self._real.effective_user
+        @property
+        def message(self):
+            return self._real.callback_query.message
+        def __getattr__(self, item):
+            return getattr(self._real, item)
+    await sheets_import_command(_FakeUpdate(update), context)
+
+
+async def _handle_sheets_reset_callback(update: Update):
+    """Disconnect the Google Sheets binding."""
+    query = update.callback_query
+    tg_user_id = update.effective_user.id
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.tg_user_id == tg_user_id).first()
+        if not user:
+            await query.answer("Ошибка.", show_alert=True)
+            return
+        user.google_sheets_spreadsheet_id = None
+        db.commit()
+        await query.answer("🔌 Отключено.")
+        await _show_sheets_screen(update)
+    finally:
+        db.close()
 
 
 async def _show_timezone_picker(update: Update):

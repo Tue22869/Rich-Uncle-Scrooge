@@ -5,7 +5,7 @@ from enum import Enum as PyEnum
 
 from sqlalchemy import (
     Column, Integer, String, DateTime, ForeignKey, 
-    DECIMAL, Boolean, Text, Enum as SQLEnum, JSON
+    DECIMAL, Boolean, Enum as SQLEnum, JSON
 )
 from sqlalchemy.orm import relationship, declarative_base
 
@@ -63,6 +63,9 @@ class User(Base):
     last_activity_date = Column(String, nullable=True)  # ISO date string
     total_operations = Column(Integer, default=0, nullable=False)
     achievements_json = Column(JSON, nullable=True)  # list of achievement codes
+    # Onboarding: 0 = not started, 1 = first account created, 2 = first op confirmed,
+    # 3 = second op confirmed (tour done). Tour stops after step 3.
+    onboarding_step = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships

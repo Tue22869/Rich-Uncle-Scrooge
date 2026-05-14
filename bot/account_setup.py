@@ -87,22 +87,43 @@ async def _handle_quick_create(update: Update, context: ContextTypes.DEFAULT_TYP
 
         await query.edit_message_text(
             f"✅ Счёт «{name}» ({currency}) создан!\n\n"
-            f"{'⭐ Это ваш основной счёт.' if account.is_default else ''}\n\n"
-            f"💰 Ваши счета:\n{accounts_text}\n\n"
-            "Теперь просто пишите о расходах и доходах:\n"
-            "• «кофе 320» — расход\n"
-            "• «+50000 зп» — доход\n"
-            "• «отчет за месяц» — отчёт",
+            f"{'⭐ Это твой основной счёт.' if account.is_default else ''}\n\n"
+            f"💰 Твои счета:\n{accounts_text}",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
         # Activate persistent bottom keyboard via a lightweight message
         from bot.menu import PERSISTENT_MENU
         await query.message.reply_text("⌨️", reply_markup=PERSISTENT_MENU)
+
+        # Onboarding tip after the very first account
+        if total == 1:
+            from services.onboarding import advance_after_first_account
+            tip = advance_after_first_account(db, user)
+            if tip:
+                await query.message.reply_text(tip, parse_mode="Markdown")
     except Exception as e:
         logger.error("Account quick create error: %s", e, exc_info=True)
-        await query.edit_message_text("Ошибка при создании счёта. Попробуйте позже.")
+        await query.edit_message_text("Ошибка при создании счёта. Попробуй позже.")
     finally:
         db.close()
+
+
+CURRENCY_KEYBOARD_ROWS = [
+    [("🇷🇺 RUB", "RUB"), ("🇺🇸 USD", "USD")],
+    [("🇪🇺 EUR", "EUR"), ("₮ USDT", "USDT")],
+    [("🇻🇳 VND", "VND"), ("🇹🇭 THB", "THB")],
+    [("🇨🇳 CNY", "CNY"), ("🇰🇿 KZT", "KZT")],
+    [("🇬🇧 GBP", "GBP"), ("🇺🇦 UAH", "UAH")],
+]
+
+
+def _build_currency_keyboard() -> InlineKeyboardMarkup:
+    rows = []
+    for row in CURRENCY_KEYBOARD_ROWS:
+        rows.append([InlineKeyboardButton(label, callback_data=f"acct:currency:{code}") for label, code in row])
+    rows.append([InlineKeyboardButton("✏️ Другая валюта…", callback_data="acct:currency:custom")])
+    rows.append([InlineKeyboardButton("↩️ Назад", callback_data="acct:back_to_start")])
+    return InlineKeyboardMarkup(rows)
 
 
 async def _handle_custom_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -112,38 +133,47 @@ async def _handle_custom_prompt(update: Update, context: ContextTypes.DEFAULT_TY
     # Clear any leftover state from previous attempt
     context.user_data.pop("custom_account_currency", None)
     context.user_data.pop("custom_account_name", None)
-
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🇷🇺 RUB", callback_data="acct:currency:RUB"),
-            InlineKeyboardButton("🇺🇸 USD", callback_data="acct:currency:USD"),
-        ],
-        [
-            InlineKeyboardButton("🇪🇺 EUR", callback_data="acct:currency:EUR"),
-            InlineKeyboardButton("₮ USDT", callback_data="acct:currency:USDT"),
-        ],
-        [InlineKeyboardButton("↩️ Назад", callback_data="acct:back_to_start")],
-    ])
+    context.user_data.pop("awaiting_custom_currency", None)
 
     await query.edit_message_text(
         "✏️ *Создание своего счёта*\n\n"
-        "Шаг 1: Выберите валюту:",
-        reply_markup=keyboard,
+        "Шаг 1: Выбери валюту или нажми «Другая валюта…», чтобы ввести свой тикер (например VND или DONG).",
+        reply_markup=_build_currency_keyboard(),
         parse_mode="Markdown",
     )
 
 
 async def _handle_custom_currency(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
-    """Handle currency selection for custom account — prompt for name."""
+    """Handle currency selection for custom account — prompt for name (or for free-form ticker)."""
     query = update.callback_query
-    currency = data.replace(ACCT_CUSTOM_CURRENCY, "").upper()
+    raw = data.replace(ACCT_CUSTOM_CURRENCY, "")
 
-    if currency not in ("RUB", "USD", "EUR", "USDT"):
+    # Branch: user wants to enter an arbitrary ticker
+    if raw.lower() == "custom":
+        context.user_data["awaiting_custom_currency"] = True
+        context.user_data.pop("custom_account_currency", None)
+        context.user_data.pop("custom_account_name", None)
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("↩️ Назад к валютам", callback_data="acct:custom")],
+        ])
+        await query.edit_message_text(
+            "✏️ *Своя валюта*\n\n"
+            "Напиши тикер сообщением — латиницей или цифрами, 1–10 символов.\n\n"
+            "Примеры: `VND`, `DONG`, `BTC`, `GEL`, `TRY`.",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+        return
+
+    currency = raw.upper()
+    # Basic shape check; the curated list above is already valid.
+    if not currency or len(currency) > 10 or not currency.isalnum():
         await query.edit_message_text("❌ Неизвестная валюта.")
         return
 
     # Store currency in user_data for the next step
     context.user_data["custom_account_currency"] = currency
+    context.user_data.pop("awaiting_custom_currency", None)
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("↩️ Назад", callback_data="acct:custom")],
@@ -151,7 +181,7 @@ async def _handle_custom_currency(update: Update, context: ContextTypes.DEFAULT_
 
     await query.edit_message_text(
         f"✏️ *Создание своего счёта ({currency})*\n\n"
-        "Шаг 2: Напишите название счёта в чат.\n\n"
+        "Шаг 2: Напиши название счёта в чат.\n\n"
         "Примеры:\n"
         "• Тинькофф\n"
         "• Крипта\n"
@@ -216,6 +246,7 @@ async def _handle_back_to_start(update: Update, context: ContextTypes.DEFAULT_TY
     # Clear custom account creation state
     context.user_data.pop("custom_account_currency", None)
     context.user_data.pop("custom_account_name", None)
+    context.user_data.pop("awaiting_custom_currency", None)
 
     tg_user_id = update.effective_user.id
     db = SessionLocal()
@@ -256,7 +287,12 @@ async def _handle_back_to_start(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def handle_custom_account_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle text input during custom account creation (name or balance step)."""
+    """Handle text input during custom account creation (currency, name, or balance step)."""
+    # Step 1b: free-form currency ticker input
+    if context.user_data.get("awaiting_custom_currency"):
+        await _handle_custom_currency_input(update, context)
+        return
+
     # Step 3: initial balance input
     if context.user_data.get("custom_account_name"):
         await _handle_custom_balance_input(update, context)
@@ -313,6 +349,44 @@ async def handle_custom_account_name(update: Update, context: ContextTypes.DEFAU
     )
 
 
+async def _handle_custom_currency_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle free-form currency ticker input from the user."""
+    import re
+
+    raw = (update.message.text or "").strip().upper()
+    # Strip a few common punctuation characters users include by accident.
+    raw = raw.replace("$", "").replace("€", "").replace("₽", "").strip()
+
+    if not re.fullmatch(r"[A-Z0-9]{1,10}", raw):
+        await update.message.reply_text(
+            "❌ Тикер должен быть 1–10 символов: латиница или цифры. Попробуй ещё раз.\n\n"
+            "Примеры: `VND`, `DONG`, `BTC`, `TRY`.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("↩️ Назад к валютам", callback_data="acct:custom")],
+            ]),
+        )
+        return
+
+    context.user_data.pop("awaiting_custom_currency", None)
+    context.user_data["custom_account_currency"] = raw
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("↩️ Назад", callback_data="acct:custom")],
+    ])
+
+    await update.message.reply_text(
+        f"✏️ *Создание своего счёта ({raw})*\n\n"
+        "Шаг 2: Напиши название счёта в чат.\n\n"
+        "Примеры:\n"
+        "• Тинькофф\n"
+        "• Крипта\n"
+        "• Наличные доллары",
+        reply_markup=keyboard,
+        parse_mode="Markdown",
+    )
+
+
 async def _handle_custom_balance_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle initial balance text input for custom account creation."""
     from decimal import Decimal, InvalidOperation
@@ -362,7 +436,6 @@ async def _handle_balance_skip(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def _finalize_custom_account(update: Update, name: str, currency: str, balance):
     """Create the custom account and show result (from message context)."""
-    from decimal import Decimal
     tg_user_id = update.effective_user.id
     db = SessionLocal()
     try:
@@ -381,26 +454,31 @@ async def _finalize_custom_account(update: Update, name: str, currency: str, bal
         buttons.append([InlineKeyboardButton("🏠 Главное меню", callback_data="menu:main")])
 
         bal_text = f" с балансом {format_amount(balance, currency)}" if balance > 0 else ""
+        default_line = "⭐ Это твой основной счёт.\n" if account.is_default else ""
         await update.message.reply_text(
             f"✅ Счёт «{name}» ({currency}) создан{bal_text}!\n\n"
-            f"{'⭐ Это ваш основной счёт.\n' if account.is_default else ''}"
-            f"💰 Ваши счета:\n{accounts_text}\n\n"
-            "Теперь просто пишите о расходах и доходах!",
+            + default_line
+            + f"💰 Твои счета:\n{accounts_text}",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
         # Activate persistent bottom keyboard via a lightweight message
         from bot.menu import PERSISTENT_MENU
         await update.message.reply_text("⌨️", reply_markup=PERSISTENT_MENU)
+
+        if len(accounts) == 1:
+            from services.onboarding import advance_after_first_account
+            tip = advance_after_first_account(db, user)
+            if tip:
+                await update.message.reply_text(tip, parse_mode="Markdown")
     except Exception as e:
         logger.error("Custom account creation error: %s", e, exc_info=True)
-        await update.message.reply_text("❌ Ошибка при создании счёта. Попробуйте позже.")
+        await update.message.reply_text("❌ Ошибка при создании счёта. Попробуй позже.")
     finally:
         db.close()
 
 
 async def _finalize_custom_account_from_callback(query, name: str, currency: str, balance):
     """Create the custom account and show result (from callback context)."""
-    from decimal import Decimal
     tg_user_id = query.from_user.id
     db = SessionLocal()
     try:
@@ -418,16 +496,22 @@ async def _finalize_custom_account_from_callback(query, name: str, currency: str
             buttons.append([InlineKeyboardButton("➕ Добавить ещё счёт", callback_data="acct:more")])
         buttons.append([InlineKeyboardButton("🏠 Главное меню", callback_data="menu:main")])
 
+        default_line = "⭐ Это твой основной счёт.\n" if account.is_default else ""
         await query.edit_message_text(
             f"✅ Счёт «{name}» ({currency}) создан!\n\n"
-            f"{'⭐ Это ваш основной счёт.\n' if account.is_default else ''}"
-            f"💰 Ваши счета:\n{accounts_text}\n\n"
-            "Теперь просто пишите о расходах и доходах!",
+            + default_line
+            + f"💰 Твои счета:\n{accounts_text}",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
         # Activate persistent bottom keyboard via a lightweight message
         from bot.menu import PERSISTENT_MENU
         await query.message.reply_text("⌨️", reply_markup=PERSISTENT_MENU)
+
+        if len(accounts) == 1:
+            from services.onboarding import advance_after_first_account
+            tip = advance_after_first_account(db, user)
+            if tip:
+                await query.message.reply_text(tip, parse_mode="Markdown")
     except Exception as e:
         logger.error("Custom account creation error: %s", e, exc_info=True)
         await query.edit_message_text("❌ Ошибка при создании счёта.")
