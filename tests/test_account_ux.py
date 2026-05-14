@@ -8,7 +8,7 @@ from db.models import User, Account, Transaction
 from db.session import SessionLocal, init_db, engine
 from services.ledger import (
     get_or_create_user, create_account, delete_account,
-    add_expense, transfer, count_account_transactions, set_default_account,
+    add_income, add_expense, transfer, count_account_transactions, set_default_account,
 )
 from services.onboarding import (
     advance_after_first_account,
@@ -52,6 +52,33 @@ def test_count_account_transactions_includes_transfers(db: Session, user: User):
     assert count_account_transactions(db, user.id, rub.id) == 3
     # usd has 1 transfer-to = 1
     assert count_account_transactions(db, user.id, usd.id) == 1
+
+
+def test_count_account_transactions_empty(db: Session, user: User):
+    """An account with no operations counts zero."""
+    acc = create_account(db, user.id, "Пустой", "RUB", Decimal("0"))
+    assert count_account_transactions(db, user.id, acc.id) == 0
+
+
+def test_count_account_transactions_income_and_expense(db: Session, user: User):
+    """One income + one expense on the same account counts as 2."""
+    acc = create_account(db, user.id, "Карта", "RUB", Decimal("1000"))
+    add_income(db, user.id, Decimal("500"), "RUB", acc.id)
+    add_expense(db, user.id, Decimal("300"), "RUB", acc.id)
+    assert count_account_transactions(db, user.id, acc.id) == 2
+
+
+def test_count_account_transactions_from_and_to_counted_once_each(db: Session, user: User):
+    """An account referenced as from in one transfer and to in another counts each row once."""
+    a = create_account(db, user.id, "A", "RUB", Decimal("1000"))
+    b = create_account(db, user.id, "B", "RUB", Decimal("1000"))
+
+    transfer(db, user.id, Decimal("100"), "RUB", a.id, b.id)  # a is from
+    transfer(db, user.id, Decimal("200"), "RUB", b.id, a.id)  # a is to
+
+    # Two distinct transfer rows touch account a — counted once each.
+    assert count_account_transactions(db, user.id, a.id) == 2
+    assert count_account_transactions(db, user.id, b.id) == 2
 
 
 def test_delete_account_used_in_transfer_removes_transfer(db: Session, user: User):
