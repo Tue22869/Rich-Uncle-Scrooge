@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.orm import Session
 
-from db.models import User, Account, Transaction
+from db.models import User, Transaction
 from db.session import SessionLocal, init_db, engine
 from services.ledger import (
     get_or_create_user, create_account, delete_account,
@@ -97,7 +97,7 @@ def test_delete_account_used_in_transfer_removes_transfer(db: Session, user: Use
 def test_delete_default_reassigns_to_oldest_remaining(db: Session, user: User):
     first = create_account(db, user.id, "Первый", "RUB", Decimal("0"))
     second = create_account(db, user.id, "Второй", "RUB", Decimal("0"))
-    third = create_account(db, user.id, "Третий", "USD", Decimal("0"))
+    create_account(db, user.id, "Третий", "USD", Decimal("0"))
 
     # First is auto-default
     db.refresh(user)

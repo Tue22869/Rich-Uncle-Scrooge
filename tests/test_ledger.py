@@ -1,7 +1,6 @@
 """Tests for ledger operations."""
 import pytest
 from decimal import Decimal
-from datetime import datetime
 from sqlalchemy.orm import Session
 
 from db.models import User, Account, Transaction, TransactionType
@@ -276,7 +275,7 @@ def test_transfer_cross_currency(db: Session, user: User, account: Account):
     """Test cross-currency transfer."""
     usd_acc = create_account(db, user.id, "USD Account", "USD", Decimal("0.00"))
     
-    tx = transfer(
+    transfer(
         db, user.id, Decimal("900.00"), "RUB", account.id, usd_acc.id,
         to_amount=Decimal("10.00"), to_currency="USD"
     )

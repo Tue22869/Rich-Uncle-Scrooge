@@ -10,7 +10,7 @@ from db.session import SessionLocal, init_db, engine
 from services.ledger import get_or_create_user, create_account, add_expense
 from services.retention import (
     update_streak, format_achievement_notification, format_streak_text,
-    get_tip_of_the_day, check_budget_alerts, ACHIEVEMENTS,
+    get_tip_of_the_day, check_budget_alerts,
 )
 
 

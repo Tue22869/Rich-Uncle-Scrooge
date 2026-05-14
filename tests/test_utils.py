@@ -1,7 +1,6 @@
 """Tests for utility functions."""
-import pytest
 from decimal import Decimal
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from utils.dates import (
     format_date, format_operation_date, parse_period,

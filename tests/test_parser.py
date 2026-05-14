@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import patch, AsyncMock
 
-from schemas.llm_schema import LLMResponse, LLMResponseData, PeriodSchema
+from schemas.llm_schema import LLMResponse, LLMResponseData
 from llm.parser import parse_message, _is_valid_response
 
 

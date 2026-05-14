@@ -10,7 +10,7 @@ from db.models import (
     Budget, Base,
 )
 from db.session import SessionLocal, init_db, engine
-from services.ledger import get_or_create_user, create_account
+from services.ledger import get_or_create_user
 from services.billing import activate_trial, get_subscription_info, expire_subscriptions
 from bot.middleware import _has_premium_access, _get_trial_days_left, get_usage_stats
 
