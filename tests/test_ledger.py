@@ -103,9 +103,88 @@ def test_delete_account_zero_balance(db: Session, user: User):
 
 
 def test_delete_account_non_zero_balance(db: Session, user: User, account: Account):
-    """Test deleting account with non-zero balance fails."""
-    with pytest.raises(ValueError, match="Cannot delete account"):
-        delete_account(db, user.id, account.id)
+    """Deleting an account with non-zero balance now succeeds (cascade)."""
+    # Make sure there's a second account so the default has somewhere to move
+    other = create_account(db, user.id, "Запасной", "RUB", Decimal("0.00"))
+    result = delete_account(db, user.id, account.id)
+    assert result is True
+    # Default reassigned to the surviving account
+    db.refresh(user)
+    assert user.default_account_id == other.id
+
+
+def test_delete_account_cascades_transactions(db: Session, user: User, account: Account):
+    """Deleting an account also removes its transactions."""
+    add_expense(db, user.id, Decimal("100.00"), "RUB", account.id)
+    add_income(db, user.id, Decimal("200.00"), "RUB", account.id)
+    other = create_account(db, user.id, "Другой", "RUB", Decimal("0.00"))
+
+    tx_before = db.query(Transaction).filter(Transaction.user_id == user.id).count()
+    assert tx_before == 2
+
+    delete_account(db, user.id, account.id)
+
+    tx_after = db.query(Transaction).filter(Transaction.user_id == user.id).count()
+    assert tx_after == 0
+    # Other account's balance untouched
+    db.refresh(other)
+    assert other.balance == Decimal("0.00")
+
+
+def test_delete_last_account_clears_default(db: Session, user: User, account: Account):
+    """Deleting the only remaining account clears user.default_account_id."""
+    delete_account(db, user.id, account.id)
+    db.refresh(user)
+    assert user.default_account_id is None
+
+
+def test_delete_transfer_participant_leaves_other_balances(db: Session, user: User):
+    """Deleting a transfer participant removes the transfer; other balances stay as-is."""
+    rub = create_account(db, user.id, "Карта", "RUB", Decimal("1000.00"))
+    usd = create_account(db, user.id, "USD", "USD", Decimal("0.00"))
+    cash = create_account(db, user.id, "Нал", "RUB", Decimal("300.00"))
+
+    transfer(db, user.id, Decimal("500.00"), "RUB", rub.id, usd.id,
+             to_amount=Decimal("5.00"), to_currency="USD")
+    db.refresh(rub)
+    assert rub.balance == Decimal("500.00")
+
+    delete_account(db, user.id, usd.id)
+
+    # The transfer is gone...
+    assert db.query(Transaction).filter(Transaction.user_id == user.id).count() == 0
+    # ...but balances of the surviving accounts are untouched (no recompute).
+    db.refresh(rub)
+    db.refresh(cash)
+    assert rub.balance == Decimal("500.00")
+    assert cash.balance == Decimal("300.00")
+
+
+def test_delete_non_default_account_keeps_default(db: Session, user: User):
+    """Deleting a non-default account does not change user.default_account_id."""
+    first = create_account(db, user.id, "Первый", "RUB", Decimal("0.00"))
+    second = create_account(db, user.id, "Второй", "RUB", Decimal("0.00"))
+    db.refresh(user)
+    assert user.default_account_id == first.id
+
+    delete_account(db, user.id, second.id)
+
+    db.refresh(user)
+    db.refresh(first)
+    assert user.default_account_id == first.id
+    assert first.is_default is True
+
+
+def test_delete_last_account_clears_default_and_is_default(db: Session, user: User, account: Account):
+    """Deleting the only account leaves no default flag set anywhere."""
+    delete_account(db, user.id, account.id)
+
+    db.refresh(user)
+    assert user.default_account_id is None
+    # No account carries is_default=True (there are none left at all).
+    assert db.query(Account).filter(
+        Account.user_id == user.id, Account.is_default == True
+    ).count() == 0
 
 
 def test_rename_account(db: Session, user: User, account: Account):
