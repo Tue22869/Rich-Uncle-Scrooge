@@ -84,6 +84,43 @@ def test_expired_trial_no_premium(db: Session, user: User):
     assert _has_premium_access(db, user) is False
 
 
+# === Admin bypass tests ===
+
+def test_admin_bypasses_paywall(db: Session, user: User, monkeypatch):
+    """Telegram IDs in ADMIN_USER_IDS get premium without a subscription."""
+    monkeypatch.setenv("ADMIN_USER_IDS", f"{user.tg_user_id},111")
+    assert _has_premium_access(db, user) is True
+
+
+def test_admin_bypass_ignores_expired_sub(db: Session, user: User, monkeypatch):
+    """Admin access works even if their subscription has expired."""
+    sub = activate_trial(db, user.id)
+    sub.expires_at = datetime.utcnow() - timedelta(days=30)
+    db.commit()
+    monkeypatch.setenv("ADMIN_USER_IDS", str(user.tg_user_id))
+    assert _has_premium_access(db, user) is True
+
+
+def test_non_admin_still_blocked(db: Session, user: User, monkeypatch):
+    """Users not in ADMIN_USER_IDS still hit the paywall."""
+    monkeypatch.setenv("ADMIN_USER_IDS", "111,222")
+    assert _has_premium_access(db, user) is False
+
+
+def test_empty_admin_env_is_safe(db: Session, user: User, monkeypatch):
+    """Empty / unset ADMIN_USER_IDS doesn't crash and grants no premium."""
+    monkeypatch.setenv("ADMIN_USER_IDS", "")
+    assert _has_premium_access(db, user) is False
+    monkeypatch.delenv("ADMIN_USER_IDS", raising=False)
+    assert _has_premium_access(db, user) is False
+
+
+def test_malformed_admin_ids_ignored(db: Session, user: User, monkeypatch):
+    """Non-numeric tokens in ADMIN_USER_IDS are ignored, not crash."""
+    monkeypatch.setenv("ADMIN_USER_IDS", f"  ,abc, {user.tg_user_id} , ")
+    assert _has_premium_access(db, user) is True
+
+
 # === Subscription Info Tests ===
 
 def test_subscription_info_no_sub(db: Session, user: User):

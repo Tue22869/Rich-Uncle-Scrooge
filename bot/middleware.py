@@ -1,5 +1,6 @@
 """Middleware: subscription checks, usage stats, paywall display."""
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Tuple
 
@@ -11,8 +12,20 @@ from db.models import User, Subscription, SubscriptionPlan, SubscriptionStatus
 logger = logging.getLogger(__name__)
 
 
+def _admin_ids() -> set[int]:
+    """Parse ADMIN_USER_IDS env var (comma-separated Telegram user IDs)."""
+    raw = os.getenv("ADMIN_USER_IDS", "")
+    return {int(x) for x in raw.split(",") if x.strip().isdigit()}
+
+
 def _has_premium_access(db: Session, user: User) -> bool:
-    """Check if user has an active subscription (trial, monthly, or yearly)."""
+    """Check if user has an active subscription (trial, monthly, or yearly).
+
+    Admins listed in ADMIN_USER_IDS always have access — they own the bot
+    and should not be paying their own paywall.
+    """
+    if user.tg_user_id in _admin_ids():
+        return True
     now = datetime.utcnow()
     active_sub = (
         db.query(Subscription)
