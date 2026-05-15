@@ -112,3 +112,53 @@ docker-compose up -d
 ## Документация
 
 Подробная архитектурная документация: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+
+## Правовые документы
+
+- Политика конфиденциальности: [`docs/privacy.html`](docs/privacy.html) →
+  https://tue22869.github.io/Rich-Uncle-Scrooge/privacy.html
+- Условия использования: [`docs/terms.html`](docs/terms.html) →
+  https://tue22869.github.io/Rich-Uncle-Scrooge/terms.html
+
+В боте доступны команды `/privacy` и `/terms`.
+URL политики конфиденциальности должен быть установлен в `@BotFather` →
+Bot Settings → Privacy Policy.
+
+## Резервные копии БД
+
+Скрипт [`scripts/backup_db.sh`](scripts/backup_db.sh) делает атомарный снапшот SQLite
+через `sqlite3 .backup`, сжимает gzip-ом, кладёт в `~/backups/scrooge/` и удаляет
+файлы старше 14 дней.
+
+### Установка на сервере (одноразово)
+
+```bash
+# Установить sqlite3 CLI (нужен для безопасного snapshot работающей БД)
+sudo apt-get update && sudo apt-get install -y sqlite3
+
+# Сделать скрипт исполняемым
+chmod +x ~/Rich-Uncle-Scrooge/scripts/backup_db.sh
+
+# Прогнать вручную для проверки
+~/Rich-Uncle-Scrooge/scripts/backup_db.sh
+ls -lh ~/backups/scrooge/
+
+# Поставить в cron: каждые 6 часов (00:00, 06:00, 12:00, 18:00)
+crontab -e
+# Добавить (подставив свой $HOME):
+# 0 */6 * * * $HOME/Rich-Uncle-Scrooge/scripts/backup_db.sh >> $HOME/backups/scrooge/cron.log 2>&1
+```
+
+Параметры можно переопределить через env: `DB_PATH`, `BACKUP_DIR`, `RETENTION_DAYS`.
+
+### Восстановление из бэкапа
+
+```bash
+docker compose stop smartfinances
+
+gunzip -c ~/backups/scrooge/smartfinances-YYYYMMDD-HHMMSS.db.gz > /tmp/restore.db
+mv ~/Rich-Uncle-Scrooge/data/smartfinances.db ~/Rich-Uncle-Scrooge/data/smartfinances.db.broken
+cp /tmp/restore.db ~/Rich-Uncle-Scrooge/data/smartfinances.db
+
+docker compose start smartfinances
+```
