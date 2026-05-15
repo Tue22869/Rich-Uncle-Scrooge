@@ -1,18 +1,16 @@
-version: '3.8'
-
 services:
   smartfinances:
     build: .
     container_name: smartfinances_bot
     restart: unless-stopped
+    # Forward the whole .env file (TELEGRAM_BOT_TOKEN, OPENAI_API_KEY,
+    # ADMIN_USER_IDS, SENTRY_DSN, YOOKASSA_*, etc.) into the container.
+    env_file:
+      - .env
+    # Container-internal paths that override host .env values:
     environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - GOOGLE_APPLICATION_CREDENTIALS=/app/google_credentials.json
       - DATABASE_URL=sqlite:////app/data/smartfinances.db
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - SPEECHFLOW_KEY_ID=${SPEECHFLOW_KEY_ID}
-      - SPEECHFLOW_KEY_SECRET=${SPEECHFLOW_KEY_SECRET}
     volumes:
       - ./data:/app/data
       - ./google_credentials.json:/app/google_credentials.json:ro
@@ -21,4 +19,3 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-

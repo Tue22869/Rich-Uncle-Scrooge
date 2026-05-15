@@ -117,10 +117,11 @@ def add_expense(
     account = db.query(Account).filter(Account.id == account_id, Account.user_id == user_id).first()
     if not account:
         raise ValueError(f"Account {account_id} not found for user {user_id}")
-    
-    if account.balance < amount:
-        raise ValueError(f"Insufficient balance: {account.balance} < {amount}")
-    
+
+    # No insufficient-balance check on purpose: bot is used mostly for tracking
+    # expenses, so users should always be able to log a spend even when they
+    # haven't recorded their full income. Balance can legitimately go negative.
+
     try:
         # Atomic transaction
         account.balance -= amount
@@ -182,10 +183,10 @@ def transfer(
         raise ValueError(f"From account {from_account_id} not found")
     if not to_account:
         raise ValueError(f"To account {to_account_id} not found")
-    
-    if from_account.balance < amount:
-        raise ValueError(f"Insufficient balance: {from_account.balance} < {amount}")
-    
+
+    # No insufficient-balance check — transfers from a negative balance are
+    # allowed (consistent with add_expense).
+
     # Use to_amount for cross-currency, otherwise same amount
     credit_amount = to_amount if to_amount is not None else amount
     

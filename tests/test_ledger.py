@@ -249,10 +249,11 @@ def test_add_expense_with_category(db: Session, user: User, account: Account):
     assert tx.subcategory == "кофе"
 
 
-def test_add_expense_insufficient_balance(db: Session, user: User, account: Account):
-    """Test expense fails with insufficient balance."""
-    with pytest.raises(ValueError, match="Insufficient balance"):
-        add_expense(db, user.id, Decimal("5000.00"), "RUB", account.id)
+def test_add_expense_can_go_negative(db: Session, user: User, account: Account):
+    """Expense from a small balance goes through and the account goes negative."""
+    add_expense(db, user.id, Decimal("5000.00"), "RUB", account.id)
+    db.refresh(account)
+    assert account.balance == Decimal("-4000.00")  # was 1000, spent 5000
 
 
 # === Transfer Tests ===
@@ -287,12 +288,16 @@ def test_transfer_cross_currency(db: Session, user: User, account: Account):
     assert usd_acc.balance == Decimal("10.00")
 
 
-def test_transfer_insufficient_balance(db: Session, user: User, account: Account):
-    """Test transfer fails with insufficient balance."""
+def test_transfer_can_go_negative(db: Session, user: User, account: Account):
+    """Transfer from a small balance goes through; source goes negative."""
     acc2 = create_account(db, user.id, "Другой", "RUB")
-    
-    with pytest.raises(ValueError, match="Insufficient balance"):
-        transfer(db, user.id, Decimal("5000.00"), "RUB", account.id, acc2.id)
+
+    transfer(db, user.id, Decimal("5000.00"), "RUB", account.id, acc2.id)
+
+    db.refresh(account)
+    db.refresh(acc2)
+    assert account.balance == Decimal("-4000.00")  # 1000 - 5000
+    assert acc2.balance == Decimal("5000.00")
 
 
 # === Transaction Management Tests ===
