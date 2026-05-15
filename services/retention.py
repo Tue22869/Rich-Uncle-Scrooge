@@ -141,10 +141,16 @@ def format_achievement_notification(achievement_codes: List[str]) -> str:
     return "\n".join(lines)
 
 
-async def _llm_rewrite_digest(template_text: str, digest_type: str = "weekly") -> Optional[str]:
+async def _llm_rewrite_digest(
+    template_text: str,
+    digest_type: str = "weekly",
+    *,
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
+) -> Optional[str]:
     """Use LLM to rewrite a template digest into natural, motivational text."""
     try:
-        from llm.parser import client, PRIMARY_MODEL
+        from llm.parser import client, PRIMARY_MODEL, _extract_usage
         period_label = "еженедельный" if digest_type == "weekly" else "ежемесячный"
         system_prompt = (
             f"Ты — дружелюбный финансовый ассистент. Перепиши {period_label} дайджест "
@@ -161,6 +167,24 @@ async def _llm_rewrite_digest(template_text: str, digest_type: str = "weekly") -
             ],
             temperature=0.7,
         )
+
+        # Best-effort cost accounting.
+        if db is not None and user_id is not None:
+            try:
+                from services.analytics import log_event
+                from db.models import UsageEventKind
+                usage = _extract_usage(response)
+                log_event(
+                    db,
+                    user_id=user_id,
+                    kind=UsageEventKind.DIGEST_LLM,
+                    model=PRIMARY_MODEL,
+                    **usage,
+                    meta={"period": digest_type},
+                )
+            except Exception as e:
+                logger.warning(f"digest usage logging failed: {e}")
+
         return response.choices[0].message.content.strip()
     except Exception as e:
         logger.warning(f"LLM digest rewrite failed, using template: {e}")
@@ -333,7 +357,7 @@ async def generate_weekly_digest_llm(db: Session, user: User) -> Optional[str]:
     template = generate_weekly_digest(db, user)
     if not template:
         return None
-    llm_text = await _llm_rewrite_digest(template, "weekly")
+    llm_text = await _llm_rewrite_digest(template, "weekly", db=db, user_id=user.id)
     return llm_text or template
 
 
@@ -342,7 +366,7 @@ async def generate_monthly_digest_llm(db: Session, user: User) -> Optional[str]:
     template = generate_monthly_digest(db, user)
     if not template:
         return None
-    llm_text = await _llm_rewrite_digest(template, "monthly")
+    llm_text = await _llm_rewrite_digest(template, "monthly", db=db, user_id=user.id)
     return llm_text or template
 
 

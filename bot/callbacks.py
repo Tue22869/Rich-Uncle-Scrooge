@@ -13,7 +13,7 @@ from db.models import User, Account, PendingAction, ActionType, PendingStatus
 _MENU_KB = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Главное меню", callback_data="menu:main")]])
 from services.ledger import (
     find_account_by_name, add_income, add_expense,
-    transfer, create_account, delete_account, rename_account,
+    transfer, delete_account, rename_account,
     set_default_account, update_transaction, delete_transaction_by_id
 )
 from services.reports import get_report
@@ -516,7 +516,15 @@ async def handle_report_analysis_callback(db: Session, query, user_id_str: str, 
         )
 
         data_str = format_report_for_analysis(report)
-        analysis = await generate_analysis(data_str)
+        try:
+            from services.analytics import log_event
+            from db.models import UsageEventKind
+            log_event(db, user_id=user.id, kind=UsageEventKind.ANALYSIS_VIEW,
+                      meta={"source": "report"})
+        except Exception:
+            pass
+
+        analysis = await generate_analysis(data_str, db=db, user_id=user.id)
 
         if analysis:
             await query.edit_message_text(analysis, reply_markup=_MENU_KB)

@@ -11,9 +11,9 @@
 - 📋 Бюджеты по категориям с уведомлениями 80%/100%
 - 🔥 Стрики и ачивки (10 достижений)
 - 📊 Еженедельные и ежемесячные дайджесты (LLM-generated)
-- 💎 Premium-подписка через YooKassa (trial 14 дней)
+- 💎 Premium-подписка через Telegram Stars и YooKassa (trial 14 дней)
 - ✅ Подтверждение операций через кнопки
-- 🎤 Голосовой ввод (SpeechFlow)
+- 🎤 Голосовой ввод (OpenAI Whisper)
 - 📄 Google Sheets экспорт/импорт
 - 📦 Пакетный ввод нескольких операций
 
@@ -56,7 +56,8 @@ services/
   billing.py                    — YooKassa: платежи, trial, подписки
   retention.py                  — Дайджесты, стрики, ачивки, бюджеты
   scheduler.py                  — JobQueue: cron-задачи
-  speech.py                     — SpeechFlow (voice → text)
+  speech.py                     — OpenAI Whisper (voice → text)
+  webhook_server.py             — YooKassa webhook (отдельный процесс)
   google_sheets_client.py       — Google Sheets клиент
   sheets_export.py / sheets_import.py / sheets_format.py / sheets_sync.py
 utils/
@@ -65,7 +66,9 @@ utils/
 tests/
   conftest.py                   — In-memory SQLite
   test_ledger.py / test_parser.py / test_utils.py
-  test_billing.py / test_retention.py
+  test_billing.py / test_billing_stars.py / test_retention.py
+  test_speech.py / test_middleware.py / test_webhook.py
+alembic/                        — миграции схемы (env.py, versions/)
 ```
 
 ## Примеры
@@ -88,11 +91,44 @@ tests/
 - `/sheets_import` — загрузить данные
 - `/sheets reset` — отключить
 
-## Тесты
+## Тесты и линтер
 
 ```bash
 pytest tests/ -v
+ruff check .
 ```
+
+CI запускает обе команды на Python 3.10–3.12 (см. `.github/workflows/ci.yml`).
+
+## Миграции БД (Alembic)
+
+Локально (свежая БД): `python main.py` сам прогонит `init_db()`/lightweight миграции — Alembic не нужен.
+
+Для прода используйте Alembic:
+
+```bash
+# первое подключение к существующей prod-БД (отметить, что схема уже соответствует head):
+alembic stamp head
+
+# при обновлении кода (если в models.py появились новые поля):
+alembic revision --autogenerate -m "describe change"
+alembic upgrade head
+```
+
+## YooKassa webhook (опционально)
+
+YooKassa подтверждает платежи через HTTP-нотификации. Запустите отдельный процесс
+рядом с ботом:
+
+```bash
+python -m services.webhook_server
+```
+
+Прокиньте его наружу через HTTPS-прокси (`https://your.domain/yookassa/webhook`)
+и пропишите этот URL в YooKassa → Интеграции → HTTP-уведомления.
+Без webhook оплата YooKassa всё ещё работает в режиме «нажми Проверить оплату».
+
+Telegram Stars **не требуют** webhook — `successful_payment` приходит обычным update'ом.
 
 ## Docker
 
@@ -103,11 +139,12 @@ docker-compose up -d
 ## Технологии
 
 - Python 3.10+, python-telegram-bot 20.7
-- SQLAlchemy + SQLite
-- OpenAI GPT (каскад: gpt-4o-mini → gpt-4o)
-- YooKassa (платежи)
+- SQLAlchemy + SQLite (миграции через Alembic)
+- OpenAI GPT (каскад: gpt-4o-mini → gpt-4o) + Whisper для голоса
+- Telegram Stars + YooKassa (платежи)
 - Google Sheets API
-- Pydantic, SpeechFlow, APScheduler
+- Sentry (мониторинг ошибок)
+- Pydantic, APScheduler, aiohttp
 
 ## Документация
 

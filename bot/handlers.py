@@ -323,6 +323,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = get_or_create_user(db, update.effective_user.id)
 
+        # Lightweight engagement event — never blocks the flow.
+        try:
+            from services.analytics import log_event
+            from db.models import UsageEventKind
+            log_event(db, user_id=user.id, kind=UsageEventKind.MESSAGE_IN,
+                      meta={"is_voice": False})
+        except Exception:
+            pass
+
         pending = db.query(PendingAction).filter(
             PendingAction.user_id == user.id,
             PendingAction.status == PendingStatus.PENDING,
@@ -340,7 +349,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         try:
             db.close()
-        except:
+        except Exception:
             pass
 
     await process_user_text(update, context, update.message.text)
@@ -350,6 +359,8 @@ async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
     """Handle voice messages - transcribe and process as text."""
     from services.speech import transcribe_telegram_voice
     from bot.middleware import check_subscription
+    from services.analytics import log_event
+    from db.models import UsageEventKind
 
     voice = update.message.voice
     if not voice:
@@ -357,8 +368,12 @@ async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     # Check subscription
     db = get_db()
+    user_id = None
     try:
         user = get_or_create_user(db, update.effective_user.id)
+        user_id = user.id
+        log_event(db, user_id=user_id, kind=UsageEventKind.VOICE_IN,
+                  meta={"duration_telegram_s": getattr(voice, "duration", None)})
         allowed, paywall_text, paywall_keyboard = await check_subscription(db, user)
         if not allowed:
             await update.message.reply_text(paywall_text, reply_markup=paywall_keyboard, parse_mode="Markdown")
@@ -367,9 +382,15 @@ async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         db.close()
 
     processing_msg = await update.message.reply_text("🎤 Распознаю голосовое сообщение...")
-    
+
     try:
-        text = await transcribe_telegram_voice(context.bot, voice.file_id)
+        analytics_db = get_db()
+        try:
+            text = await transcribe_telegram_voice(
+                context.bot, voice.file_id, db=analytics_db, user_id=user_id
+            )
+        finally:
+            analytics_db.close()
         
         if not text or not text.strip():
             await processing_msg.edit_text("❌ Не удалось распознать речь. Попробуй ещё раз или напиши текстом.")
@@ -474,7 +495,9 @@ async def process_user_text(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             text,
             accounts_for_llm,
             default_account_name,
-            user.timezone
+            user.timezone,
+            db=db,
+            user_id=user.id,
         )
         
         logger.info(f"Parsed intent: {llm_response.intent}, confidence: {llm_response.confidence}")
@@ -727,3 +750,63 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Произошла ошибка.")
     finally:
         db.close()
+
+
+async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Validate a Telegram Stars invoice payload before charging the user."""
+    from services.billing import parse_stars_invoice_payload
+
+    query = update.pre_checkout_query
+    parsed = parse_stars_invoice_payload(query.invoice_payload)
+    if parsed is None:
+        logger.error(f"Rejecting pre_checkout: bad payload {query.invoice_payload!r}")
+        await query.answer(ok=False, error_message="Внутренняя ошибка. Свяжитесь с поддержкой.")
+        return
+
+    await query.answer(ok=True)
+
+
+async def successful_payment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Activate subscription after a successful Telegram Stars payment."""
+    from services.billing import confirm_stars_payment
+
+    payment = update.message.successful_payment
+    if not payment:
+        return
+
+    if payment.currency != "XTR":
+        # We only sell via Stars right now; YooKassa flows go through the webhook.
+        logger.warning(f"Received non-Stars successful_payment currency={payment.currency}")
+        return
+
+    db = get_db()
+    try:
+        sub = confirm_stars_payment(
+            db,
+            telegram_payment_charge_id=payment.telegram_payment_charge_id,
+            invoice_payload=payment.invoice_payload,
+            total_amount=payment.total_amount,
+        )
+    finally:
+        db.close()
+
+    if not sub:
+        await update.message.reply_text(
+            "⚠️ Платёж прошёл, но активация подписки не удалась. "
+            "Напишите в поддержку — мы восстановим вручную.",
+        )
+        return
+
+    expires = sub.expires_at.strftime("%d.%m.%Y")
+    plan_labels = {"monthly": "Месяц", "yearly": "Год"}
+    plan_label = plan_labels.get(sub.plan.value, sub.plan.value)
+    await update.message.reply_text(
+        f"🎉 *Подписка оформлена!*\n\n"
+        f"📋 Тариф: {plan_label}\n"
+        f"📅 Действует до: {expires}\n\n"
+        "✨ Все возможности бота теперь доступны!",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="menu:main")],
+        ]),
+        parse_mode="Markdown",
+    )

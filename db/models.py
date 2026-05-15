@@ -163,6 +163,13 @@ class SubscriptionStatus(PyEnum):
     CANCELLED = "cancelled"
 
 
+class SubscriptionProvider:
+    """Payment provider constants (not an Enum — kept as plain strings for forward-compat)."""
+    TRIAL = "trial"
+    YOOKASSA = "yookassa"
+    STARS = "stars"
+
+
 class Subscription(Base):
     """Subscription model for tracking user payments and trial."""
     __tablename__ = "subscriptions"
@@ -171,7 +178,10 @@ class Subscription(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     plan = Column(SQLEnum(SubscriptionPlan), nullable=False)
     status = Column(SQLEnum(SubscriptionStatus), default=SubscriptionStatus.ACTIVE, nullable=False)
-    payment_id = Column(String, nullable=True)  # YooKassa payment ID
+    # provider: "trial" | "yookassa" | "stars" (see SubscriptionProvider)
+    provider = Column(String, default=SubscriptionProvider.YOOKASSA, nullable=False, index=True)
+    # For yookassa: YooKassa payment.id; for stars: telegram_payment_charge_id.
+    payment_id = Column(String, nullable=True, index=True)
     paid_at = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -193,4 +203,56 @@ class Budget(Base):
 
     # Relationships
     user = relationship("User", back_populates="budgets")
+
+
+class UsageEventKind:
+    """Kinds of UsageEvent stored in the analytics table."""
+
+    # User-facing engagement (no LLM cost)
+    MESSAGE_IN = "message_in"           # any inbound text message
+    VOICE_IN = "voice_in"               # inbound voice message
+    REPORT_VIEW = "report_view"         # user opened a report
+    ANALYSIS_VIEW = "analysis_view"     # user requested LLM analysis (counts before LLM call)
+    COMMAND = "command"                 # /start, /menu, /accounts ... (meta.cmd)
+    FEATURE_FIRST = "feature_first"    # first time a user uses a feature (aha-moment funnel)
+
+    # LLM/Whisper cost-bearing events
+    PARSE_LLM = "parse_llm"             # parse_message() → OpenAI
+    ANALYSIS_LLM = "analysis_llm"       # generate_analysis() → OpenAI
+    DIGEST_LLM = "digest_llm"           # weekly/monthly digest LLM rewrite
+    WHISPER = "whisper"                 # voice → text via Whisper
+
+    # Money
+    SUBSCRIPTION_PAID = "subscription_paid"
+    TRIAL_STARTED = "trial_started"
+
+
+class UsageEvent(Base):
+    """Single analytics / billing event.
+
+    Two purposes:
+      1. **Cost accounting**: every OpenAI / Whisper call writes input/output tokens
+         and pre-computed cost in micros (1 USD = 1_000_000 micros). Integer math
+         throughout, no rounding drift.
+      2. **Engagement metrics**: lightweight events (message_in, voice_in,
+         feature_first) for DAU/MAU, retention, funnels — no cost columns set.
+    """
+
+    __tablename__ = "usage_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    kind = Column(String, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    # Cost-bearing fields (nullable for non-LLM events)
+    model = Column(String, nullable=True)
+    input_tokens = Column(Integer, nullable=True)
+    cached_input_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+    audio_seconds = Column(Integer, nullable=True)
+    cost_usd_micro = Column(Integer, nullable=True)   # 1 USD = 1_000_000
+
+    # Free-form context (intent, plan, provider, ...) — JSON for flexibility
+    meta = Column(JSON, nullable=True)
 
