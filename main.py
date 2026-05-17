@@ -11,6 +11,7 @@ from telegram.request import HTTPXRequest
 
 from bot.handlers import (
     start_command, accounts_command, report_command, help_command,
+    privacy_command, terms_command,
     message_handler, voice_message_handler, callback_handler,
     pre_checkout_handler, successful_payment_handler,
 )
@@ -98,6 +99,8 @@ def main():
     application.add_handler(CommandHandler("sheets_export", sheets_export_command))
     application.add_handler(CommandHandler("sheets_import", sheets_import_command))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("privacy", privacy_command))
+    application.add_handler(CommandHandler("terms", terms_command))
     application.add_handler(CommandHandler("admin_stats", cmd_admin_stats))
 
     # Single callback handler that routes all callback prefixes

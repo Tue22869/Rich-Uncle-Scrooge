@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 # Reusable inline button row for "Главное меню"
 MENU_BUTTON = [InlineKeyboardButton("🏠 Главное меню", callback_data="menu:main")]
 
+# Public URLs for legal documents (GitHub Pages).
+PRIVACY_URL = "https://tue22869.github.io/Rich-Uncle-Scrooge/privacy.html"
+TERMS_URL = "https://tue22869.github.io/Rich-Uncle-Scrooge/terms.html"
+LEGAL_CONTACT_EMAIL = "komarov.is@phystech.edu"
+
 # --- Telegram send/edit reliability ---
 # Sometimes Telegram API calls fail transiently (DNS hiccups, short disconnects).
 # Without a retry, the user sees "bot doesn't answer" even though the update was processed.
@@ -290,6 +295,36 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         HELP_INTRO,
         parse_mode="Markdown",
         reply_markup=_help_sections_keyboard(),
+    )
+
+
+async def privacy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /privacy — link to the published privacy policy."""
+    text = (
+        "🔒 *Политика конфиденциальности*\n\n"
+        f"Полный текст: {PRIVACY_URL}\n\n"
+        f"Вопросы и запросы на удаление данных — {LEGAL_CONTACT_EMAIL}"
+    )
+    await update.message.reply_text(
+        text,
+        parse_mode="Markdown",
+        disable_web_page_preview=False,
+        reply_markup=InlineKeyboardMarkup([MENU_BUTTON]),
+    )
+
+
+async def terms_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /terms — link to the published terms of service."""
+    text = (
+        "📄 *Условия использования*\n\n"
+        f"Полный текст: {TERMS_URL}\n\n"
+        f"Вопросы по возвратам и подписке — {LEGAL_CONTACT_EMAIL}"
+    )
+    await update.message.reply_text(
+        text,
+        parse_mode="Markdown",
+        disable_web_page_preview=False,
+        reply_markup=InlineKeyboardMarkup([MENU_BUTTON]),
     )
 
 
