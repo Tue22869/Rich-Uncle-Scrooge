@@ -42,6 +42,21 @@ def is_admin(tg_user_id: int) -> bool:
     return tg_user_id in _admin_ids()
 
 
+# Telegram legacy Markdown treats `_` `*` `` ` `` `[` as entity delimiters.
+# Any dynamic string interpolated into a Markdown message can contain these
+# and break parsing. Escape before formatting.
+def _md_escape(s) -> str:
+    """Escape Telegram legacy Markdown special chars in dynamic text."""
+    return (
+        str(s)
+        .replace("\\", "\\\\")
+        .replace("_", "\\_")
+        .replace("*", "\\*")
+        .replace("`", "\\`")
+        .replace("[", "\\[")
+    )
+
+
 # ---------------------------------------------------------------------------
 # Aggregations
 # ---------------------------------------------------------------------------
@@ -316,7 +331,9 @@ def render_admin_stats(db: Session, *, usd_rate: float = 90.0) -> str:
     start_count = funnel[0][1] if funnel else 0
     for label, cnt in funnel:
         pct = (cnt / start_count * 100.0) if start_count else 0.0
-        lines.append(f"  {label:<32} `{cnt}` ({pct:.0f}%)")
+        # Escape *after* width-padding so the visible alignment stays right.
+        safe_label = _md_escape(f"{label:<32}")
+        lines.append(f"  {safe_label} `{cnt}` ({pct:.0f}%)")
     lines.append("")
 
     lines.append("*🎤 Whisper · 30 дней*")
