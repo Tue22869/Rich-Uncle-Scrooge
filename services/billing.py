@@ -130,7 +130,7 @@ def create_payment(db: Session, user_id: int, plan: SubscriptionPlan, return_url
                 },
                 "confirmation": {
                     "type": "redirect",
-                    "return_url": return_url or "https://t.me/uncle_scrooge_bot",
+                    "return_url": return_url or "https://t.me/RichUncleScrooge_Bot",
                 },
                 "capture": True,
                 "description": f"Подписка «Дядя Скрудж» — {plan_info['label']}",
