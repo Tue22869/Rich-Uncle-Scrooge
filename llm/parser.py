@@ -25,6 +25,11 @@ PRIMARY_MODEL = "gpt-5-mini"
 FALLBACK_MODEL = "gpt-5.1"
 ANALYSIS_MODEL = "gpt-5.1"  # Smarter model for free-form report/insight analysis
 
+# Some OpenAI models reject any temperature other than the default (1) and
+# return 400 invalid_request_error. Listed here so we omit the param entirely
+# for them — passing the default explicitly still trips the same check.
+MODELS_WITHOUT_TEMPERATURE = {"gpt-5-mini"}
+
 # Cache the system prompt for OpenAI prompt caching
 _CACHED_SYSTEM_PROMPT = None
 
@@ -76,16 +81,18 @@ async def _call_llm_json_mode(
         usage_dict always has input_tokens / cached_input_tokens / output_tokens keys.
     """
     empty_usage = {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0}
+    kwargs = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "response_format": {"type": "json_object"},
+    }
+    if model not in MODELS_WITHOUT_TEMPERATURE:
+        kwargs["temperature"] = 0
     try:
-        response = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0,
-            response_format={"type": "json_object"}
-        )
+        response = await client.chat.completions.create(**kwargs)
 
         content = response.choices[0].message.content
         logger.info(f"[{model}] LLM raw response: {content}")
