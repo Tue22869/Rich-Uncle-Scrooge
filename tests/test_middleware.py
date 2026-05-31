@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from bot.middleware import (
+    _admin_ids,
     _has_premium_access,
     _get_active_subscription,
     _get_trial_days_left,
@@ -136,3 +137,33 @@ async def test_check_subscription_allows_with_active_sub(db, user):
     assert allowed is True
     assert text is None
     assert keyboard is None
+
+
+def test_admin_ids_parses_csv(monkeypatch):
+    monkeypatch.setenv("ADMIN_USER_IDS", "707102323, 671094213 ,abc, ,42")
+    assert _admin_ids() == {707102323, 671094213, 42}
+
+
+def test_admin_ids_empty_when_unset(monkeypatch):
+    monkeypatch.delenv("ADMIN_USER_IDS", raising=False)
+    assert _admin_ids() == set()
+
+
+def test_admin_bypasses_paywall_without_subscription(db, user, monkeypatch):
+    monkeypatch.setenv("ADMIN_USER_IDS", str(user.tg_user_id))
+    assert _has_premium_access(db, user) is True
+    assert is_pro(db, user.tg_user_id) is True
+
+
+@pytest.mark.asyncio
+async def test_admin_check_subscription_allowed(db, user, monkeypatch):
+    monkeypatch.setenv("ADMIN_USER_IDS", str(user.tg_user_id))
+    allowed, text, keyboard = await check_subscription(db, user)
+    assert allowed is True
+    assert text is None
+    assert keyboard is None
+
+
+def test_non_admin_still_blocked(db, user, monkeypatch):
+    monkeypatch.setenv("ADMIN_USER_IDS", "999999")
+    assert _has_premium_access(db, user) is False
